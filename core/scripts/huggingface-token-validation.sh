@@ -1,17 +1,38 @@
+#!/usr/bin/env bash
 set -euo pipefail
-HF_TOKEN="Your hugging face token"; MODEL_ID="Model Id you want to use"
-[ -z "$HF_TOKEN" ] || [ -z "$MODEL_ID" ] && { echo "Usage: $0 hf_<TOKEN> <model_id>"; exit 1; }
 
-echo "Checking model: $MODEL_ID"
+# --- Prompt for inputs
+read -p "Enter your Hugging Face token: " HF_TOKEN
+read -p "Enter your Model ID: " MODEL_ID
+
+# --- Validate inputs
+if [[ -z "$HF_TOKEN" || -z "$MODEL_ID" ]]; then
+  echo "Usage: $0 <huggingface_token> <model_id>"
+  exit 1
+fi
+
+echo "Checking model: $MODEL_ID ..."
+echo
 
 # --- Fetch metadata
 meta=$(curl -s -H "Authorization: Bearer $HF_TOKEN" "https://huggingface.co/api/models/$MODEL_ID")
 
-# --- Parse metadata
-private=$(echo "$meta" | grep -o '"private":[^,}]*' | cut -d: -f2 | tr -d ' "')
-gated=$(echo "$meta" | grep -o '"gated":[^,}]*' | cut -d: -f2 | tr -d ' "')
+# --- If the API failed
+if [[ -z "$meta" ]]; then
+  echo "Failed to fetch metadata. Please check your token or model ID."
+  exit 1
+fi
 
-# --- Try downloading a small file to test access
+# --- Parse metadata (using jq if available, otherwise fallback to grep)
+if command -v jq >/dev/null 2>&1; then
+  private=$(echo "$meta" | jq -r '.private // "unknown"')
+  gated=$(echo "$meta" | jq -r '.gated // "unknown"')
+else
+  private=$(echo "$meta" | grep -o '"private":[^,}]*' | cut -d: -f2 | tr -d ' "')
+  gated=$(echo "$meta" | grep -o '"gated":[^,}]*' | cut -d: -f2 | tr -d ' "')
+fi
+
+# --- Try downloading a small file (config.json) to check access
 status=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer $HF_TOKEN" \
   "https://huggingface.co/$MODEL_ID/resolve/main/config.json")
@@ -29,7 +50,7 @@ case "$status" in
 esac
 echo "--------------------------------------"
 
-# --- Explain terms
+# --- Explain meaning
 cat <<'EOT'
 Meaning of each term:
 - Private=false → The model is public (anyone can view/download).
