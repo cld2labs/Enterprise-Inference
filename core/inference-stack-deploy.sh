@@ -130,6 +130,7 @@ HOMEDIR="$(pwd)"
 KUBESPRAYDIR="$(dirname "$(realpath "$0")")/kubespray"
 VENVDIR="$(dirname "$(realpath "$0")")/kubespray225-venv"
 INVENTORY_PATH="${KUBESPRAYDIR}/inventory/mycluster/hosts.yaml"
+script_logfile="${HOMEDIR}/deploy_logfile.log"
 # Set the default values for the parameters
 cluster_url=""
 cert_file=""
@@ -611,7 +612,8 @@ run_infrastructure_readiness_check() {
         echo -e "${RED}Error: Inventory file not found at $HOMEDIR/inventory/hosts.yaml${NC}"
         echo -e "${YELLOW}Please ensure the inventory file exists and contains the correct host information.${NC}"
         return 1
-    fi    
+    fi
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" --become --become-user=root playbooks/inference-precheck.yml" >> ${script_logfile}
     if ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root playbooks/inference-precheck.yml; then
         echo -e "${GREEN}Infrastructure readiness check completed successfully.${NC}"
         return 0
@@ -798,6 +800,7 @@ invoke_prereq_workflows() {
 
 check_cluster_state() {
     echo "Checking the state of the Kubernetes cluster..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i inventory/mycluster/hosts.yaml --become --become-user=root upgrade-cluster.yml --check" >> ${script_logfile}
     ansible-playbook -i inventory/mycluster/hosts.yaml --become --become-user=root upgrade-cluster.yml --check
     # Check the exit status of the Ansible playbook command
     if [ $? -eq 0 ]; then
@@ -816,8 +819,9 @@ run_reset_playbook() {
         echo "Running Ceph uninstall as part of cluster reset..."
         uninstall_ceph_cluster
     fi
-        
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-keycloak-controller.yml --extra-vars \"delete_pv_on_purge=${delete_pv_on_purge}\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-keycloak-controller.yml --extra-vars "delete_pv_on_purge=${delete_pv_on_purge}"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" --become --become-user=root reset.yml -e \"confirm_reset=yes reset_nodes=false\""  >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root reset.yml -e "confirm_reset=yes reset_nodes=false"
     # Check the exit status of the Ansible playbook command
     if [ $? -eq 0 ]; then
@@ -862,11 +866,13 @@ reset_cluster() {
 
 run_fresh_install_playbook() {
     echo "Running the cluster.yml playbook to set up the Kubernetes cluster..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" --become --become-user=root cluster.yml" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root cluster.yml
 }
 
 run_kube_conf_copy_playbook() {
     echo "Running the setup-user-kubeconfig.yml playbook to set up kubeconfig for the user..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/setup-user-kubeconfig.yml" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/setup-user-kubeconfig.yml
 }
 
@@ -878,6 +884,7 @@ run_k8s_cluster_wait() {
 
 run_deploy_habana_ai_operator_playbook() {
     echo "Running the deploy-habana-ai-operator.yml playbook to deploy the habana-ai-operator..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-galaxy collection install community.kubernetes" >> ${script_logfile}
     ansible-galaxy collection install community.kubernetes
     if [[ "$gaudi_platform" == "gaudi2" ]]; then
         gaudi_operator="$gaudi2_operator"
@@ -885,7 +892,8 @@ run_deploy_habana_ai_operator_playbook() {
         gaudi_operator="$gaudi3_operator"
     else
         gaudi_operator=""
-    fi    
+    fi
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" --become --become-user=root deploy-habana-ai-operator.yml --extra-vars \"gaudi_operator=${gaudi_operator}\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root deploy-habana-ai-operator.yml --extra-vars "gaudi_operator=${gaudi_operator}"
     if [ $? -eq 0 ]; then
         echo "The deploy-habana-ai-operator.yml playbook ran successfully."
@@ -897,17 +905,20 @@ run_deploy_habana_ai_operator_playbook() {
 
 run_ingress_nginx_playbook() {
     echo "Deploying the Ingress NGINX Controller..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-ingress-controller.yml --extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file}\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-ingress-controller.yml --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file}"  
 }
 
 install_ansible_collection() {
     echo "Installing community.general collection..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-galaxy collection install community.general" >> ${script_logfile}
     ansible-galaxy collection install community.general
 }
 
 run_keycloak_playbook() {
     echo "Deploying Keycloak using Ansible playbook..."
-    install_ansible_collection    
+    install_ansible_collection
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-keycloak-controller.yml" >> ${script_logfile}    
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-keycloak-controller.yml
 }
 
@@ -930,6 +941,8 @@ create_keycloak_tls_secret_playbook() {
     echo "Deploying Keycloak TLS secret playbook..."    
     echo "************************************"        
     
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-keycloak-tls-cert.yml " \
+        "--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} model_name_list='${model_name_list//\ /,}'  deploy_keycloak=${deploy_keycloak}  deploy_apisix=${deploy_apisix}" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-keycloak-tls-cert.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} model_name_list='${model_name_list//\ /,}'  deploy_keycloak=${deploy_keycloak}  deploy_apisix=${deploy_apisix} "
 }
@@ -937,6 +950,7 @@ create_keycloak_tls_secret_playbook() {
 run_genai_gateway_playbook() {
     echo "Deploying GenAI Gateway Service..."
     echo "************************************"        
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-genai-gateway.yml --extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} deploy_genai_gateway=${deploy_genai_gateway} model_name_list='${model_name_list//\ /,}' \" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-genai-gateway.yml --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} deploy_genai_gateway=${deploy_genai_gateway} model_name_list='${model_name_list//\ /,}' " --vault-password-file "$vault_pass_file"
 }
 
@@ -1005,7 +1019,10 @@ deploy_inference_llm_models_playbook() {
     fi    
     
     tags=${tags%,}
-        
+
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} install_true=${install_true} model_name_list='${model_name_list//\ /,}' cpu_playbook=${cpu_playbook} gpu_playbook=${gpu_playbook} hugging_face_token_falcon3=${hugging_face_token_falcon3} deploy_keycloak=${deploy_keycloak} apisix_enabled=${apisix_enabled} ingress_enabled=${ingress_enabled} gaudi_deployment=${gaudi_deployment} huggingface_model_id=${huggingface_model_id} hugging_face_model_deployment=${hugging_face_model_deployment} huggingface_model_deployment_name=${huggingface_model_deployment_name} deploy_inference_llm_models_playbook=${deploy_inference_llm_models_playbook} huggingface_tensor_parellel_size=${huggingface_tensor_parellel_size} deploy_genai_gateway=${deploy_genai_gateway} vllm_metrics_enabled=${vllm_metrics_enabled} gaudi_values_file=${gaudi_values_file} deploy_ceph=${deploy_ceph} enable_cpu_balloons=${enable_cpu_balloons}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
+
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} install_true=${install_true} model_name_list='${model_name_list//\ /,}' cpu_playbook=${cpu_playbook} gpu_playbook=${gpu_playbook} hugging_face_token_falcon3=${hugging_face_token_falcon3} deploy_keycloak=${deploy_keycloak} apisix_enabled=${apisix_enabled} ingress_enabled=${ingress_enabled} gaudi_deployment=${gaudi_deployment} huggingface_model_id=${huggingface_model_id} hugging_face_model_deployment=${hugging_face_model_deployment} huggingface_model_deployment_name=${huggingface_model_deployment_name} deploy_inference_llm_models_playbook=${deploy_inference_llm_models_playbook} huggingface_tensor_parellel_size=${huggingface_tensor_parellel_size} deploy_genai_gateway=${deploy_genai_gateway} vllm_metrics_enabled=${vllm_metrics_enabled} gaudi_values_file=${gaudi_values_file} deploy_ceph=${deploy_ceph} enable_cpu_balloons=${enable_cpu_balloons}" --tags "$tags" --vault-password-file "$vault_pass_file"
 
@@ -1016,6 +1033,7 @@ deploy_ceph_cluster() {
     echo "Deploying Ceph Cluster..."
 
     echo "Generating Ceph configuration values..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/generate-ceph-values.yml" >> ${script_logfile}
     if ! ansible-playbook -i "${INVENTORY_PATH}" playbooks/generate-ceph-values.yml; then
         echo -e "${RED}Failed to generate Ceph configuration values.${NC}"
         echo -e "${YELLOW}Please check the inventory configuration and try again.${NC}"
@@ -1023,6 +1041,7 @@ deploy_ceph_cluster() {
     fi
 
     echo "Deploying Ceph storage cluster..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-ceph-storage.yml" >> ${script_logfile}
     if ! ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-ceph-storage.yml; then
         echo -e "${RED} Ceph Cluster deployment FAILED!${NC}"
         echo ""
@@ -1081,6 +1100,7 @@ uninstall_ceph_cluster() {
     
     # Always attempt to run the uninstall playbook, but handle failures gracefully
     echo "Attempting Ceph cluster uninstall (if installed)..."
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/uninstall-ceph-storage.yml" >> ${script_logfile}
     if ansible-playbook -i "${INVENTORY_PATH}" playbooks/uninstall-ceph-storage.yml; then
         echo "Ceph cluster uninstall completed successfully."
     else
@@ -1098,7 +1118,8 @@ deploy_observability_playbook() {
     if [ "${deploy_logging}" = "yes" ]; then
         tags+="deploy_logging,"
     fi
-    tags="${tags%,}"            
+    tags="${tags%,}"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-observability.yml --become --become-user=root --extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} deploy_observability=${deploy_observability} deploy_logging=${deploy_logging}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-observability.yml --become --become-user=root --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} deploy_observability=${deploy_observability} deploy_logging=${deploy_logging}" --tags "$tags" --vault-password-file "$vault_pass_file"
     
 }
@@ -1106,6 +1127,7 @@ deploy_observability_playbook() {
 deploy_istio_playbook() {
     echo "Deploying Istio playbook..."    
     if [ "$deploy_istio" = "yes" ]; then
+	echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-istio.yml" >> ${script_logfile}
         ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-istio.yml
     else
         echo "Skipping Istio deployment as deploy_istio is set to 'no'."
@@ -1125,7 +1147,8 @@ deploy_nri_balloons_playbook() {
     
     if [ "$deploy_nri_balloon_policy" == "yes" ] || [ "$cpu_or_gpu" == "c" ]; then
         echo "${GREEN}Deploying CPU optimization with topology detection and NRI balloon policy${NC}"
-        ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-cpu-optimization.yml --extra-vars "cpu_playbook=true"
+        echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-cpu-optimization.yml --extra-vars \"cpu_playbook=true\"" >> ${script_logfile}
+	ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-cpu-optimization.yml --extra-vars "cpu_playbook=true"
         if [ $? -eq 0 ]; then
             echo "${GREEN}CPU optimization deployed successfully${NC}"
         else
@@ -1143,7 +1166,7 @@ deploy_cluster_config_playbook() {
     else
         tags=""        
     fi
-    
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-cluster-config.yml --become --become-user=root --extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file}\" --tags \"$tags\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-cluster-config.yml --become --become-user=root --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file}" --tags "$tags" 
 }
 
@@ -1159,7 +1182,9 @@ remove_inference_llm_models_playbook() {
         tags+="uninstall-$hugging_face_model_remove_name,"
     fi
     tags=${tags%,}        
-    uninstall_true="true"               
+    uninstall_true="true"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} model_name_list='${model_name_list//\ /,}' hugging_face_model_remove_deployment=${hugging_face_model_remove_deployment} hugging_face_model_remove_name=${hugging_face_model_remove_name} deploy_ceph=${deploy_ceph}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}    
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} model_name_list='${model_name_list//\ /,}' hugging_face_model_remove_deployment=${hugging_face_model_remove_deployment} hugging_face_model_remove_name=${hugging_face_model_remove_name} deploy_ceph=${deploy_ceph}" --tags "$tags" --vault-password-file "$vault_pass_file" 
 }
@@ -1177,7 +1202,7 @@ add_inference_nodes_playbook() {
     fi
 
     invoke_prereq_workflows "$@"     
-
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/cluster.yml --become --become-user=root" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/cluster.yml --become --become-user=root 
 
     
@@ -1197,6 +1222,7 @@ remove_inference_nodes_playbook() {
         return 1
     fi
     invoke_prereq_workflows "$@"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/remove_node.yml --become --become-user=root -e node=\"$worker_nodes_to_remove\" -e allow_ungraceful_removal=true" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/remove_node.yml --become --become-user=root -e node="$worker_nodes_to_remove" -e allow_ungraceful_removal=true
 }
 
@@ -1207,6 +1233,8 @@ list_inference_llm_models_playbook() {
     echo $model_name_list
     echo "Listing the models..."
     list_model_true="true"       
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} list_model_true='${list_model_true//\ /,}'\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} list_model_true='${list_model_true//\ /,}'" --vault-password-file "$vault_pass_file"
 }
@@ -1792,6 +1820,7 @@ update_gaudi_driver_and_firmware_both() {
 update_drivers() {
     invoke_prereq_workflows
     echo "${YELLOW}Updating drivers...${NC}"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-gaudi-firmware-driver.yml --extra-vars \"update_type=drivers\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-gaudi-firmware-driver.yml \
         --extra-vars "update_type=drivers"
     echo "${GREEN}Drivers updated successfully!${NC}"
@@ -1801,6 +1830,7 @@ update_drivers() {
 update_firmware() {
     invoke_prereq_workflows
     echo "${YELLOW}Updating firmware...${NC}"
+    echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-gaudi-firmware-driver.yml --extra-vars \"update_type=firmware\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-gaudi-firmware-driver.yml \
         --extra-vars "update_type=firmware"
     echo "${GREEN}Firmware updated successfully!${NC}"
