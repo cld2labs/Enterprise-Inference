@@ -13,8 +13,6 @@ max_model_len: 5120
 image:
   repository: opea/vllm-gaudi
   tag: "1.22.0"
-  #repository: alexsin368/vllm-gaudi
-  #tag: "v0.9.0.1-Gaudi-1.22.0"
   pullPolicy: IfNotPresent
 
 affinity:
