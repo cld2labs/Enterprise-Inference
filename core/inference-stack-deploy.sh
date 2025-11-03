@@ -130,7 +130,7 @@ HOMEDIR="$(pwd)"
 KUBESPRAYDIR="$(dirname "$(realpath "$0")")/kubespray"
 VENVDIR="$(dirname "$(realpath "$0")")/kubespray225-venv"
 INVENTORY_PATH="${KUBESPRAYDIR}/inventory/mycluster/hosts.yaml"
-script_logfile="${HOMEDIR}/deploy_logfile.log"
+script_logfile="$(dirname "$(realpath "$0")")/deploy_logfile.log"
 # Set the default values for the parameters
 cluster_url=""
 cert_file=""
@@ -942,7 +942,7 @@ create_keycloak_tls_secret_playbook() {
     echo "************************************"        
     
     echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-keycloak-tls-cert.yml " \
-        "--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} model_name_list='${model_name_list//\ /,}'  deploy_keycloak=${deploy_keycloak}  deploy_apisix=${deploy_apisix}" >> ${script_logfile}
+        "--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=xxx keycloak_client_id=${keycloak_client_id} hugging_face_token=xxx model_name_list='${model_name_list//\ /,}'  deploy_keycloak=${deploy_keycloak}  deploy_apisix=${deploy_apisix}" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-keycloak-tls-cert.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} model_name_list='${model_name_list//\ /,}'  deploy_keycloak=${deploy_keycloak}  deploy_apisix=${deploy_apisix} "
 }
@@ -1021,7 +1021,7 @@ deploy_inference_llm_models_playbook() {
     tags=${tags%,}
 
     echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
-	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} install_true=${install_true} model_name_list='${model_name_list//\ /,}' cpu_playbook=${cpu_playbook} gpu_playbook=${gpu_playbook} hugging_face_token_falcon3=${hugging_face_token_falcon3} deploy_keycloak=${deploy_keycloak} apisix_enabled=${apisix_enabled} ingress_enabled=${ingress_enabled} gaudi_deployment=${gaudi_deployment} huggingface_model_id=${huggingface_model_id} hugging_face_model_deployment=${hugging_face_model_deployment} huggingface_model_deployment_name=${huggingface_model_deployment_name} deploy_inference_llm_models_playbook=${deploy_inference_llm_models_playbook} huggingface_tensor_parellel_size=${huggingface_tensor_parellel_size} deploy_genai_gateway=${deploy_genai_gateway} vllm_metrics_enabled=${vllm_metrics_enabled} gaudi_values_file=${gaudi_values_file} deploy_ceph=${deploy_ceph} enable_cpu_balloons=${enable_cpu_balloons}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=xxx keycloak_client_id=${keycloak_client_id} hugging_face_token=xxx install_true=${install_true} model_name_list='${model_name_list//\ /,}' cpu_playbook=${cpu_playbook} gpu_playbook=${gpu_playbook} hugging_face_token_falcon3=${hugging_face_token_falcon3} deploy_keycloak=${deploy_keycloak} apisix_enabled=${apisix_enabled} ingress_enabled=${ingress_enabled} gaudi_deployment=${gaudi_deployment} huggingface_model_id=${huggingface_model_id} hugging_face_model_deployment=${hugging_face_model_deployment} huggingface_model_deployment_name=${huggingface_model_deployment_name} deploy_inference_llm_models_playbook=${deploy_inference_llm_models_playbook} huggingface_tensor_parellel_size=${huggingface_tensor_parellel_size} deploy_genai_gateway=${deploy_genai_gateway} vllm_metrics_enabled=${vllm_metrics_enabled} gaudi_values_file=${gaudi_values_file} deploy_ceph=${deploy_ceph} enable_cpu_balloons=${enable_cpu_balloons}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
 
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} install_true=${install_true} model_name_list='${model_name_list//\ /,}' cpu_playbook=${cpu_playbook} gpu_playbook=${gpu_playbook} hugging_face_token_falcon3=${hugging_face_token_falcon3} deploy_keycloak=${deploy_keycloak} apisix_enabled=${apisix_enabled} ingress_enabled=${ingress_enabled} gaudi_deployment=${gaudi_deployment} huggingface_model_id=${huggingface_model_id} hugging_face_model_deployment=${hugging_face_model_deployment} huggingface_model_deployment_name=${huggingface_model_deployment_name} deploy_inference_llm_models_playbook=${deploy_inference_llm_models_playbook} huggingface_tensor_parellel_size=${huggingface_tensor_parellel_size} deploy_genai_gateway=${deploy_genai_gateway} vllm_metrics_enabled=${vllm_metrics_enabled} gaudi_values_file=${gaudi_values_file} deploy_ceph=${deploy_ceph} enable_cpu_balloons=${enable_cpu_balloons}" --tags "$tags" --vault-password-file "$vault_pass_file"
@@ -1184,7 +1184,7 @@ remove_inference_llm_models_playbook() {
     tags=${tags%,}        
     uninstall_true="true"
     echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
-	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} model_name_list='${model_name_list//\ /,}' hugging_face_model_remove_deployment=${hugging_face_model_remove_deployment} hugging_face_model_remove_name=${hugging_face_model_remove_name} deploy_ceph=${deploy_ceph}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}    
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=xxx keycloak_client_id=${keycloak_client_id} hugging_face_token=xxx uninstall_true=${uninstall_true} model_name_list='${model_name_list//\ /,}' hugging_face_model_remove_deployment=${hugging_face_model_remove_deployment} hugging_face_model_remove_name=${hugging_face_model_remove_name} deploy_ceph=${deploy_ceph}\" --tags \"$tags\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}    
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} model_name_list='${model_name_list//\ /,}' hugging_face_model_remove_deployment=${hugging_face_model_remove_deployment} hugging_face_model_remove_name=${hugging_face_model_remove_name} deploy_ceph=${deploy_ceph}" --tags "$tags" --vault-password-file "$vault_pass_file" 
 }
@@ -1234,7 +1234,7 @@ list_inference_llm_models_playbook() {
     echo "Listing the models..."
     list_model_true="true"       
     echo $(date +'%Y-%m-%d %h:%M:%S') -- "ansible-playbook -i \"${INVENTORY_PATH}\" playbooks/deploy-inference-models.yml " \
-	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} list_model_true='${list_model_true//\ /,}'\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
+	"--extra-vars \"secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=xxx keycloak_client_id=${keycloak_client_id} hugging_face_token=xxx uninstall_true=${uninstall_true} list_model_true='${list_model_true//\ /,}'\" --vault-password-file \"$vault_pass_file\"" >> ${script_logfile}
     ansible-playbook -i "${INVENTORY_PATH}" playbooks/deploy-inference-models.yml \
         --extra-vars "secret_name=${cluster_url} cert_file=${cert_file} key_file=${key_file} keycloak_admin_user=${keycloak_admin_user} keycloak_admin_password=${keycloak_admin_password} keycloak_client_id=${keycloak_client_id} hugging_face_token=${hugging_face_token} uninstall_true=${uninstall_true} list_model_true='${list_model_true//\ /,}'" --vault-password-file "$vault_pass_file"
 }
@@ -2193,7 +2193,29 @@ remove_worker_node() {
     
 }
 
+
+log_params_without_hf_token() {
+    declare -a input_params=("$@")
+    declare -a stripped_params=()
+    removeme="--hugging-face-token"
+    found=0
+    for param in "${input_params[@]}"; do
+        if (( found )); then
+            stripped_params+=("xxx")
+            found=0
+        elif [[ "$param" != "$removeme" ]]; then
+            stripped_params+=("$param")
+        else
+            stripped_params+=("$param")
+            found=1
+        fi
+    done
+    echo $(date +'%Y-%m-%d %H:%M:%S') -- START -- "$>" $0 "${stripped_params[@]}" >> ${script_logfile}
+}
+
+
 main_menu() {
+    log_params_without_hf_token "$@"
     parse_arguments "$@"
     echo "${BLUE}----------------------------------------------------------${NC}"
     echo "${BLUE}|  Intel AI for Enterprise Inference                      |${NC}"
@@ -2219,6 +2241,7 @@ main_menu() {
             main_menu
             ;;
     esac
+    echo $(date +'%Y-%m-%d %H:%M:%S') -- END -- >> ${script_logfile}
 }
 
 main_menu "$@"
