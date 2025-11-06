@@ -3,3 +3,4 @@ core/inventory/metadata/vault.yml
 core/kubespray/
 core/scripts/generate_token.sh
 core/scripts/habanalabs-installer.sh
+core/deploy_logfile.log
