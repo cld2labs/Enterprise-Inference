@@ -1,0 +1,4 @@
+core/inventory/.become-passfile
+core/inventory/.vault-passfile
+core/inventory/metadata/vault.yml
+core/kubespray
