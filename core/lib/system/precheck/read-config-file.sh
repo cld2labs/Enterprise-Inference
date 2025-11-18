@@ -73,7 +73,8 @@ read_config_file() {
                 gaudi_platform="gaudi3"
             fi
             cpu_or_gpu="g"
-            deploy_habana_ai_operator="yes"            
+            deploy_habana_ai_operator="yes"
+	    echo "gaudi_platform set to ${gaudi_platform}"
             ;;
             *)
             echo "Invalid value for cpu_or_gpu. It should be 'c' or 'cpu' for CPU, or 'g', 'gpu', 'gaudi2', or 'gaudi3' for GPU."
