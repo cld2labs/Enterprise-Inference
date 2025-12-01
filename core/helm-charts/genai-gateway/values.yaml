@@ -47,8 +47,8 @@ probes:
     timeoutSeconds: 10
 
 ingress:
-  host: ""
-  secretname: ""
+  host: "api.example.com"
+  secretname: "trace.api.example.com"
 env:
   LITELLM_MASTER_KEY: "<REPLACE_WITH_MASTER_KEY>"
   LITELLM_SALT_KEY: "<REPLACE_WITH_SALT_KEY>"
