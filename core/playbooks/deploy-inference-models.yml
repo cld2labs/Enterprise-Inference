@@ -648,9 +648,12 @@
               --set apisix.enabled={{ apisix_enabled }}
               --set platform={{ kubernetes_platform }}
             {% endif %}
-            {% if gaudi_deployment %}
+            {% if gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
               --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
               --values {{ gaudi_values_file }}
+            {% elif nvidia_deployment|lower == "true" and nvidia_values_file is defined and nvidia_values_file|length > 0 %}
+              --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
+              --values {{ nvidia_values_file }}
             {% endif %}
             {% if ingress_enabled %}
               --set ingress.enabled={{ ingress_enabled }}
@@ -1196,10 +1199,10 @@
               --set apisix.enabled={{ apisix_enabled }}
               --set platform={{ kubernetes_platform }}
             {% endif %}
-            {% if gaudi_deployment %}
+            {% if gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
               --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
               --values {{ gaudi_values_file }}
-            {% elif nvidia_deployment|lower == "true" %}
+            {% elif nvidia_deployment|lower == "true" and nvidia_values_file is defined and nvidia_values_file|length > 0 %}
               --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
               --values {{ nvidia_values_file }}
             {% endif %}
