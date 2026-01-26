@@ -648,12 +648,16 @@
               --set apisix.enabled={{ apisix_enabled }}
               --set platform={{ kubernetes_platform }}
             {% endif %}
-            {% if gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
+            {% if nvidia_deployment|lower == "true" %}
+              --set accelDevice=nvidia
+              --set gpuCount={{ tensor_parallel_size_vllm }}
+              --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
+              {% if nvidia_values_file is defined and nvidia_values_file|length > 0 %}
+              --values {{ nvidia_values_file }}
+              {% endif %}
+            {% elif gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
               --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
               --values {{ gaudi_values_file }}
-            {% elif nvidia_deployment|lower == "true" and nvidia_values_file is defined and nvidia_values_file|length > 0 %}
-              --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
-              --values {{ nvidia_values_file }}
             {% endif %}
             {% if ingress_enabled %}
               --set ingress.enabled={{ ingress_enabled }}
@@ -743,6 +747,13 @@
               --set cpu_balloon_annotation="vllm-balloon"
               --set tensor_parallel_size={{ optimal_balloon_config.tensor_parallel_size | default(1) }}
               --set pipeline_parallel_size={{ optimal_balloon_config.pipeline_parallel_size | default(1) }}
+            {% elif nvidia_deployment|lower == "true" %}
+              --set accelDevice=nvidia
+              --set gpuCount={{ huggingface_tensor_parellel_size }}
+              --set tensor_parallel_size={{ huggingface_tensor_parellel_size }}
+              {% if nvidia_values_file is defined and nvidia_values_file|length > 0 %}
+              --values {{ nvidia_values_file }}
+              {% endif %}
             {% elif gaudi_deployment|lower == "true" %}
               --set tensor_parallel_size={{ huggingface_tensor_parellel_size }}
               --values {{ gaudi_values_file }}
@@ -1199,12 +1210,16 @@
               --set apisix.enabled={{ apisix_enabled }}
               --set platform={{ kubernetes_platform }}
             {% endif %}
-            {% if gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
+            {% if nvidia_deployment|lower == "true" %}
+              --set accelDevice=nvidia
+              --set gpuCount={{ tensor_parallel_size_vllm }}
+              --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
+              {% if nvidia_values_file is defined and nvidia_values_file|length > 0 %}
+              --values {{ nvidia_values_file }}
+              {% endif %}
+            {% elif gaudi_deployment and gaudi_values_file is defined and gaudi_values_file|length > 0 %}
               --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
               --values {{ gaudi_values_file }}
-            {% elif nvidia_deployment|lower == "true" and nvidia_values_file is defined and nvidia_values_file|length > 0 %}
-              --set tensor_parallel_size={{ tensor_parallel_size_vllm }}
-              --values {{ nvidia_values_file }}
             {% endif %}
             {% if ingress_enabled %}
               --set ingress.enabled={{ ingress_enabled }}
