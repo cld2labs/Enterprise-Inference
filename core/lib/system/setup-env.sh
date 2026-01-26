@@ -41,7 +41,7 @@ setup_initial_env() {
     fi
     
     VENVDIR="$KUBESPRAYDIR/venv"
-    REMOTEDIR="/tmp/helm-charts"    
+    REMOTEDIR="$KUBESPRAYDIR/helm-charts"    
     if [ ! -d "$VENVDIR" ]; then                
         echo "Installing python3-venv package..."
         if command -v apt &> /dev/null; then            

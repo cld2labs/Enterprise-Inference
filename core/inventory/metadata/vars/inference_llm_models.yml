@@ -3,7 +3,7 @@
 ansible_python_interpreter: /usr/bin/python3
 helm_charts_base: "{{ lookup('env', 'PWD') }}/helm-charts"
 remote_home_dir: "{{ lookup('env', 'PWD') }}/scripts"
-remote_helm_charts_base: "/tmp/helm-charts"
+remote_helm_charts_base: "{{ lookup('env', 'PWD') }}/helm-charts"
 ingress_file: "all_models_apisix_ingres_nginx.yaml"
 keycloak_url: "https://{{ secret_name }}"
 uninstall_true: 'false'
