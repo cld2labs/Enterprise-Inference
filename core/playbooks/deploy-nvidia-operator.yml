@@ -46,7 +46,10 @@
       shell: |
         kubectl get pods -n gpu-operator -o json | jq -r '
           .items[] |
-          select(.status.phase != "Running" or (.status.containerStatuses[] | select(.ready != true))) |
+          select(
+            (.status.phase == "Running" and ((.status.containerStatuses // []) | any(.ready != true))) or
+            (.status.phase != "Running" and .status.phase != "Succeeded")
+          ) |
           .metadata.name' | wc -l
       register: pod_status
       until: pod_status.stdout == "0" and pod_status.rc == 0
