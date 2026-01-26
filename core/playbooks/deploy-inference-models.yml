@@ -2076,7 +2076,6 @@
             namespace: default
             name: vllm-llama-8b-cpu-ingress
             state: absent
-          ignore_errors: yes
         - name: Delete Ingress resource Llama8b from auth-apisix namespace
           tags: install-cpu-llama-8b
           ignore_errors: yes
@@ -2085,7 +2084,6 @@
             namespace: auth-apisix
             name: vllm-llama-8b-cpu-ingress
             state: absent
-          ignore_errors: yes
         - name: Deploy CPU based LLM model  llama 8b Installation
           ansible.builtin.command: >-
             helm upgrade --install vllm-llama-8b-cpu "{{ remote_helm_charts_base }}/vllm"
