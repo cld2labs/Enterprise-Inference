@@ -1,0 +1,36 @@
+# Copyright (C) 2024-2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# NVIDIA GPU configuration
+accelDevice: "nvidia"
+gpuCount: 1
+
+image:
+  repository: vllm/vllm-openai
+  tag: "v0.6.3"
+  pullPolicy: IfNotPresent
+
+runtime: "nvidia"
+
+# Optional scheduling overrides for NVIDIA nodes
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Copyright (C) 2024-2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# NVIDIA GPU configuration
+accelDevice: "nvidia"
+gpuCount: 1
+
+image:
+  repository: vllm/vllm-openai
+  tag: "v0.6.3"
+  pullPolicy: IfNotPresent
+
+runtime: "nvidia"
+
+# Optional scheduling overrides for NVIDIA nodes
+nodeSelector: {}
+tolerations: []
+affinity: {}
