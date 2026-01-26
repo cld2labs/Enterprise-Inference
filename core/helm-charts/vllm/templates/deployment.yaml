@@ -120,9 +120,14 @@ spec:
               memory: {{ .Values.memory | quote }}
               {{- end }}
             {{- end }}
-            {{- else }}
+            {{- else if eq .Values.accelDevice "gaudi" }}
             limits:
               habana.ai/gaudi: {{ .Values.tensor_parallel_size | default (index .Values.modelConfigs .Values.LLM_MODEL_ID | default dict).tensor_parallel_size | default .Values.defaultModelConfigs.tensor_parallel_size | quote}}
+            {{- else if eq .Values.accelDevice "nvidia" }}
+            limits:
+              nvidia.com/gpu: {{ .Values.gpuCount | default 1 | quote }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
             {{- end }}
           {{- end }}
             
