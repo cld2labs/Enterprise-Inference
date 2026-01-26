@@ -19,7 +19,7 @@ fresh_installation() {
 
     echo "Deployment configuration: $deploy_kubernetes_fresh"
 
-    if [[ "$deploy_kubernetes_fresh" == "no" && "$deploy_habana_ai_operator" == "no" && "$deploy_ingress_controller" == "no" && "$deploy_keycloak" == "no" && "$deploy_apisix" == "no" && "$deploy_llm_models" == "no" && "$deploy_observability" == "no" && "$deploy_genai_gateway" == "no" && "$deploy_istio" == "no" && "$deploy_ceph" == "no" && "$uninstall_ceph" == "no"  && "$deploy_nri_balloon_policy" == "no" ]]; then
+    if [[ "$deploy_kubernetes_fresh" == "no" && "$deploy_habana_ai_operator" == "no" && "$deploy_nvidia_operator" == "no" && "$deploy_ingress_controller" == "no" && "$deploy_keycloak" == "no" && "$deploy_apisix" == "no" && "$deploy_llm_models" == "no" && "$deploy_observability" == "no" && "$deploy_genai_gateway" == "no" && "$deploy_istio" == "no" && "$deploy_ceph" == "no" && "$uninstall_ceph" == "no"  && "$deploy_nri_balloon_policy" == "no" ]]; then
 
     # Check if all deployment steps are set to "no" after getting user input
         echo "No installation or deployment steps selected. Skipping setup_initial_env..."
@@ -74,6 +74,13 @@ fresh_installation() {
                     "Failed to deploy Habana AI Operator. Exiting."
             else
                 echo "Skipping Habana AI Operator installation..."
+            fi
+
+            if [[ "$deploy_nvidia_operator" == "yes" ]]; then
+                execute_and_check "Deploying NVIDIA GPU Operator..." run_deploy_nvidia_operator_playbook "NVIDIA GPU Operator is deployed." \
+                    "Failed to deploy NVIDIA GPU Operator. Exiting."
+            else
+                echo "Skipping NVIDIA GPU Operator installation..."
             fi
 
             if [[ "$uninstall_ceph" == "yes" ]]; then
