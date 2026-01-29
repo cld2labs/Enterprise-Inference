@@ -68,7 +68,9 @@ defaultModelConfigs:
       "--max-model-len",
       "2048",
       "--gpu-memory-utilization",
-      "0.8",
+      "0.6",
       "--trust-remote-code",
+      "--max-num-seqs",
+      "64",
     ]
   tensor_parallel_size: "1"
