@@ -11,7 +11,7 @@ block_size: 16
 max_num_seqs: 256
 max_seq_len_to_capture: 2048
 d_type: "float16"
-max_model_len: 1536
+max_model_len: 1024
 port: 8000
 
 image:
@@ -67,13 +67,13 @@ defaultModelConfigs:
       "--dtype",
       "float16",
       "--max-model-len",
-      "1536",
+      "1024",
       "--gpu-memory-utilization",
-      "0.7",
+      "0.9",
       "--trust-remote-code",
       "--max-num-seqs",
-      "32",
+      "16",
       "--max-num-batched-tokens",
-      "1536",
+      "1024",
     ]
   tensor_parallel_size: "1"
