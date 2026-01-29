@@ -69,7 +69,7 @@ defaultModelConfigs:
       "--max-model-len",
       "1536",
       "--gpu-memory-utilization",
-      "0.5",
+      "0.7",
       "--trust-remote-code",
       "--max-num-seqs",
       "32",
