@@ -31,6 +31,16 @@ tolerations:
     effect: "NoSchedule"
 affinity: {}
 
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+
 # Model-specific overrides
 modelConfigs:
   "meta-llama/Llama-3.2-3B-Instruct":
