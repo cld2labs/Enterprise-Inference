@@ -4,6 +4,7 @@
 # NVIDIA GPU configuration
 accelDevice: "nvidia"
 gpuCount: 1
+tensor_parallel_size: "1"
 
 # Base model settings (aligned to manifest)
 block_size: 16
@@ -57,6 +58,9 @@ modelConfigs:
     tensor_parallel_size: "1"
 
 defaultModelConfigs:
+  configMapValues:
+    VLLM_CACHE_ROOT: "/tmp/.cache/vllm"
+    XDG_CACHE_HOME: "/tmp/.cache"
   extraCmdArgs:
     [
       "--dtype",
