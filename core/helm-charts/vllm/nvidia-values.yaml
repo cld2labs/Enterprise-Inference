@@ -11,7 +11,7 @@ block_size: 16
 max_num_seqs: 256
 max_seq_len_to_capture: 2048
 d_type: "float16"
-max_model_len: 2048
+max_model_len: 1536
 port: 8000
 
 image:
@@ -61,16 +61,19 @@ defaultModelConfigs:
   configMapValues:
     VLLM_CACHE_ROOT: "/tmp/.cache/vllm"
     XDG_CACHE_HOME: "/tmp/.cache"
+    PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
   extraCmdArgs:
     [
       "--dtype",
       "float16",
       "--max-model-len",
-      "2048",
+      "1536",
       "--gpu-memory-utilization",
-      "0.6",
+      "0.5",
       "--trust-remote-code",
       "--max-num-seqs",
-      "64",
+      "32",
+      "--max-num-batched-tokens",
+      "1024",
     ]
   tensor_parallel_size: "1"
