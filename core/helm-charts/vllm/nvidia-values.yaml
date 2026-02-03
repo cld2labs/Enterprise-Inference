@@ -16,7 +16,7 @@ port: 8000
 
 image:
   repository: vllm/vllm-openai
-  tag: "latest"
+  tag: "v0.6.3"
   pullPolicy: IfNotPresent
 
 runtime: "nvidia"
@@ -62,9 +62,6 @@ defaultModelConfigs:
     VLLM_CACHE_ROOT: "/tmp/.cache/vllm"
     XDG_CACHE_HOME: "/tmp/.cache"
     PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
-    NVIDIA_DISABLE_REQUIRE: "true"
-    NVIDIA_DRIVER_CAPABILITIES: "all"
-    NVIDIA_VISIBLE_DEVICES: "all"
   extraCmdArgs:
     [
       "--dtype",
