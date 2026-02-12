@@ -28,6 +28,46 @@
           metadata:
             name: genai-gateway
       run_once: true
+    - name: Create or update docker pull secret for GenAI Gateway namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ docker_registry_secret_name }}"
+            namespace: genai-gateway
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: >-
+              {{
+                {
+                  "auths": {
+                    docker_registry_server: {
+                      "username": docker_registry_username,
+                      "password": docker_registry_password,
+                      "email": docker_registry_email,
+                      "auth": (docker_registry_username ~ ":" ~ docker_registry_password) | b64encode
+                    }
+                  }
+                } | to_json | b64encode
+              }}
+      no_log: true
+      run_once: true
+      when: docker_registry_enabled | bool
+    - name: Attach docker pull secret to default service account in GenAI Gateway namespace
+      kubernetes.core.k8s:
+        state: patched
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: default
+            namespace: genai-gateway
+          imagePullSecrets:
+            - name: "{{ docker_registry_secret_name }}"
+      run_once: true
+      when: docker_registry_enabled | bool
     - name: Create TLS secret for GenAI Gateway
       community.kubernetes.k8s:
         state: present
@@ -104,6 +144,16 @@
         namespace: default
       run_once: true
       ignore_errors: true
+    - name: Authenticate helm registry for Docker Hub OCI charts
+      ansible.builtin.command:
+        cmd: >
+          helm registry login {{ docker_registry_server }}
+          --username {{ docker_registry_username }}
+          --password {{ docker_registry_password }}
+      no_log: true
+      changed_when: false
+      run_once: true
+      when: docker_registry_enabled | bool
     - name: Install GenAI Gateway System
       command: >
         helm dependency update {{ remote_helm_charts_base }}/genai-gateway
