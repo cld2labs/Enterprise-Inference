@@ -20,6 +20,82 @@
           kind: Namespace
           metadata:
             name: auth-apisix
+    - name: Create or update docker pull secret in default namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ docker_registry_secret_name }}"
+            namespace: default
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: >-
+              {{
+                {
+                  "auths": {
+                    docker_registry_server: {
+                      "username": docker_registry_username,
+                      "password": docker_registry_password,
+                      "email": docker_registry_email,
+                      "auth": (docker_registry_username ~ ":" ~ docker_registry_password) | b64encode
+                    }
+                  }
+                } | to_json | b64encode
+              }}
+      no_log: true
+      when: docker_registry_enabled | bool
+    - name: Create or update docker pull secret in auth-apisix namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ docker_registry_secret_name }}"
+            namespace: auth-apisix
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: >-
+              {{
+                {
+                  "auths": {
+                    docker_registry_server: {
+                      "username": docker_registry_username,
+                      "password": docker_registry_password,
+                      "email": docker_registry_email,
+                      "auth": (docker_registry_username ~ ":" ~ docker_registry_password) | b64encode
+                    }
+                  }
+                } | to_json | b64encode
+              }}
+      no_log: true
+      when: docker_registry_enabled | bool
+    - name: Attach docker pull secret to default service account in default namespace
+      kubernetes.core.k8s:
+        state: patched
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: default
+            namespace: default
+          imagePullSecrets:
+            - name: "{{ docker_registry_secret_name }}"
+      when: docker_registry_enabled | bool
+    - name: Attach docker pull secret to default service account in auth-apisix namespace
+      kubernetes.core.k8s:
+        state: patched
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: default
+            namespace: auth-apisix
+          imagePullSecrets:
+            - name: "{{ docker_registry_secret_name }}"
+      when: docker_registry_enabled | bool
     - name: Output variable values
       debug:
         var: cert_file, key_file, secret_name
@@ -74,7 +150,16 @@
         name: genai-gateway-ingress
         namespace: genai-gateway
       ignore_errors: true
-   
+    - name: Authenticate helm registry for Docker Hub OCI charts
+      ansible.builtin.command:
+        cmd: >
+          helm registry login {{ docker_registry_server }}
+          --username {{ docker_registry_username }}
+          --password {{ docker_registry_password }}
+      no_log: true
+      changed_when: false
+      when: docker_registry_enabled | bool
+
     - name: Deploy Keycloak System
       run_once: true
       register: helm_output
@@ -86,6 +171,8 @@
         create_namespace: true
         chart_version: "{{ keycloak_chart_version|default('22.1.0') }}"
         values:
+          global:
+            imagePullSecrets: "{{ [docker_registry_secret_name] if (docker_registry_enabled | bool) else [] }}"
           image:
             repository: bitnamilegacy/keycloak
             tag: 25.0.2-debian-12-r2

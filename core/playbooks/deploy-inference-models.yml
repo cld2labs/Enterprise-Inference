@@ -8,6 +8,7 @@
   environment: "{{ proxy_disable_env | default(env_proxy | default({})) }}"
   vars_files:
     - "{{ lookup('env', 'PWD') }}/config/vault.yml"
+    - "{{ lookup('env', 'PWD') }}/config/vars/inference_common.yml"
     - "{{ lookup('env', 'PWD') }}/config/vars/inference_llm_models.yml"
     - "{{ lookup('env', 'PWD') }}/config/inference_env.yml"
   roles:
@@ -47,6 +48,50 @@
 
     - name: Setup Environment
       block:
+        - name: Create or update docker pull secret for model deployments
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: "{{ docker_registry_secret_name }}"
+                namespace: default
+              type: kubernetes.io/dockerconfigjson
+              data:
+                .dockerconfigjson: >-
+                  {{
+                    {
+                      "auths": {
+                        docker_registry_server: {
+                          "username": docker_registry_username,
+                          "password": docker_registry_password,
+                          "email": docker_registry_email,
+                          "auth": (docker_registry_username ~ ":" ~ docker_registry_password) | b64encode
+                        }
+                      }
+                    } | to_json | b64encode
+                  }}
+          no_log: true
+          run_once: true
+          when: docker_registry_enabled | bool
+          tags: always
+
+        - name: Attach docker pull secret to default service account
+          kubernetes.core.k8s:
+            state: patched
+            definition:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: default
+                namespace: default
+              imagePullSecrets:
+                - name: "{{ docker_registry_secret_name }}"
+          run_once: true
+          when: docker_registry_enabled | bool
+          tags: always
+
         - name: Create/Update Kubernetes Secret for Hugging Face Token
           kubernetes.core.k8s:
             name: hugging-face-token

@@ -22,6 +22,16 @@ read_config_file() {
         # Load the environment variables from the temporary file
         source temp_env_vars        
         rm temp_env_vars    
+
+        # Make docker registry vars available to ansible via environment lookups.
+        if [[ -n "$docker_registry_server" || -n "$docker_registry_username" || -n "$docker_registry_password" ]]; then
+            export docker_registry_server docker_registry_username docker_registry_password docker_registry_email
+            if [[ -z "$docker_registry_secret_name" ]]; then
+                docker_registry_secret_name="regcred"
+            fi
+            export docker_registry_secret_name
+        fi
+
         local metadata_config_file="$HOMEDIR/inventory/metadata/inference-metadata.cfg"
         if [ -f "$metadata_config_file" ]; then
             echo "Metadata configuration file found, setting vars!"
