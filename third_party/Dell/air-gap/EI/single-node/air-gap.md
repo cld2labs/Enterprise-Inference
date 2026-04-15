@@ -39,12 +39,26 @@ VM1 must have internet access and be reachable from VM2 over LAN.
 
 Required before installation to avoid "Too many open files" errors:
 
-Update package list and install requierd tools
+Update package list and install required tools:
+
 ```bash
 sudo apt update
 
+sudo apt install -y \
+  jq \
+  curl \
+  wget \
+  net-tools \
+  ca-certificates \
+  gnupg \
+  lsb-release \
+  unzip \
+  tar \
+  vim \
+  software-properties-common
 ```
-verify jq installation
+
+Verify jq installation:
 
 ```bash
 jq --version
