@@ -129,8 +129,9 @@ them, that image will be skipped and you can push it manually later.
 --dry-run              Print commands without running them
 ```
 
-### Run one step at a time
+### Run one step at a time>
 
+> Note: If you have already run the above script you can skip this
 If you want to run or re-run a specific step:
 
 ```bash
