@@ -24,7 +24,6 @@ images, Helm charts, PyPI packages, and binaries from JFrog instead of the inter
 |---|---|
 | `install-vm1.sh` | Installs prerequisites and JFrog Artifactory on VM1 |
 | `jfrog-setup-all.sh` | Creates repos, enables anonymous access, uploads all assets |
-| `list-jfrog-assets.py` | Lists everything currently stored in JFrog |
 
 ---
 
