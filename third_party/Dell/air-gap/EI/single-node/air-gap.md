@@ -54,30 +54,65 @@ curl -s --max-time 5 https://huggingface.co && echo "HAS INTERNET" || echo "NO I
 
 ### Block internet (allow only LAN and loopback)
 
-```bash
-# Check your SSH client IP first - it must be in one of the allowed ranges below
-echo $SSH_CLIENT
+Before running the iptables rules, find your LAN subnet and SSH client subnet:
 
-# Allow loopback, LAN, and JFrog VM1
+```bash
+# Your VM2 IP - the first two octets give you the LAN subnet
+hostname -I
+# Example output: 100.67.177.224  --> LAN subnet is 100.67.0.0/16
+
+# Your SSH client IP - use the first three octets as the subnet
+echo $SSH_CLIENT
+# Example output: 100.64.29.169 40047 22  --> SSH client subnet is 100.64.29.0/24
+```
+
+Use those values in the rules below. The rules must be added one at a time in order -- each step inserts at a specific position, so do not skip any.
+
+Replace `<LAN-SUBNET>` with the first two octets of VM2's IP followed by `.0.0` (for example, if VM2 is `100.67.177.224`, use `100.67.0.0`).
+
+Replace `<SSH-CLIENT-SUBNET>` with the first three octets of the SSH client IP followed by `.0` (for example, if the client IP is `100.64.29.169`, use `100.64.29.0`).
+
+**Step 1 -- Install iptables-persistent before blocking internet.**
+Once the DROP rule is active, apt-get cannot reach the Ubuntu mirror. Install the package first while internet is still open.
+
+```bash
+sudo apt-get -o Acquire::ForceIPv4=true install -y iptables-persistent
+```
+
+Note: the `-o Acquire::ForceIPv4=true` flag is needed because Ubuntu mirrors advertise IPv6 addresses. Without it, apt may try IPv6 first and hang.
+
+**Step 2 -- Apply the iptables rules.**
+
+```bash
 sudo iptables -F OUTPUT
 sudo iptables -I OUTPUT 1 -m state --state ESTABLISHED,RELATED -j ACCEPT
 sudo iptables -I OUTPUT 2 -o lo -j ACCEPT
 sudo iptables -I OUTPUT 3 -d 127.0.0.0/8 -j ACCEPT
 sudo iptables -I OUTPUT 4 -d 10.0.0.0/8 -j ACCEPT
-sudo iptables -I OUTPUT 5 -d <LAN-SUBNET>/16 -j ACCEPT   # LAN subnet containing VM1 and VM2
-sudo iptables -I OUTPUT 6 -d <SSH-CLIENT-SUBNET>/24 -j ACCEPT   # SSH client subnet - adjust to match your client IP
+sudo iptables -I OUTPUT 5 -d <LAN-SUBNET>/16 -j ACCEPT
+sudo iptables -I OUTPUT 6 -d <SSH-CLIENT-SUBNET>/24 -j ACCEPT
 sudo iptables -I OUTPUT 7 -d 192.168.0.0/16 -j ACCEPT
 sudo iptables -A OUTPUT -j DROP
+```
 
-# Install iptables-persistent so rules survive reboots
-sudo apt-get install -y iptables-persistent
+**Step 3 -- Save the rules so they survive a reboot.**
+
+```bash
 sudo netfilter-persistent save
 ```
 
-Adjust the subnet ranges to match your network. The key requirements are:
-- VM1 IP must be in an allowed range
-- Your SSH client IP must be in an allowed range (or you will be locked out)
-- Kubernetes pod and service CIDRs (10.0.0.0/8) must be allowed
+If `iptables-persistent` is not available on your system (for example, the Ubuntu mirror is unreachable), save the rules manually instead:
+
+```bash
+sudo mkdir -p /etc/iptables
+sudo iptables-save | sudo tee /etc/iptables/rules.v4
+
+sudo tee /etc/network/if-pre-up.d/iptables-restore > /dev/null << 'EOF'
+#!/bin/sh
+iptables-restore < /etc/iptables/rules.v4
+EOF
+sudo chmod +x /etc/network/if-pre-up.d/iptables-restore
+```
 
 ### Verify airgap
 
@@ -90,15 +125,23 @@ curl -s --max-time 5 http://<VM1-IP>:8082/artifactory/api/system/ping && echo "O
 
 ## Step 3 - Copy the Enterprise Inference Repo to VM2
 
-From a machine with access to both the repo and VM2:
+From a machine with access to both the repo and VM2, clone the repository and check out the airgap branch:
 
 ```bash
-scp -r Enterprise-Inference user@<VM2-IP>:~/
+git clone https://github.com/cld2labs/Enterprise-Inference.git
+cd Enterprise-Inference
+git checkout ei/airgapped
+```
+
+Then copy it to VM2:
+
+```bash
+scp -r ~/Enterprise-Inference user@<VM2-IP>:~/
 ```
 
 Or copy via USB or shared storage if the environment is fully disconnected.
 
-**After copying, strip Windows CRLF line endings** (required if the files were edited on a Windows machine):
+After copying, log in to VM2 and strip Windows CRLF line endings (required if the files were edited on a Windows machine):
 
 ```bash
 find ~/Enterprise-Inference -name "*.sh" -o -name "*.yml" -o -name "*.yaml" -o -name "*.cfg" | \

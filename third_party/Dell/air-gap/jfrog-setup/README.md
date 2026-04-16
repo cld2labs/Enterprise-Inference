@@ -84,8 +84,6 @@ Default login: admin / password. You will be prompted to change the password on 
 3. Go to General -> Licenses
 4. Paste the trial license key and click Save
 
-The direct URL is: `http://localhost:8082/ui/admin/configuration/general/licenses`
-
 JFrog will not cache or serve any content until this is done.
 
 ---
@@ -110,9 +108,6 @@ cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
   --dockerhub-pass <dockerhub-pat> \
   --hf-token hf_xxxxx
 ```
-
-Docker Hub credentials are required to pull `apache/apisix-ingress-controller`. If you skip
-them, that image will be skipped and you can push it manually later.
 
 ### All available options
 
