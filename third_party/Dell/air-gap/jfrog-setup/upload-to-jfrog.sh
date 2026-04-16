@@ -40,12 +40,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-JFROG_URL="${JFROG_URL}"
-JFROG_USER="${JFROG_USER}"
-JFROG_PASS="${JFROG_PASS}"
-HF_TOKEN="${HF_TOKEN}"
-DOCKERHUB_USER="${DOCKERHUB_USER}"
-DOCKERHUB_PASS="${DOCKERHUB_PASS}"
+JFROG_URL="${JFROG_URL:-http://100.67.152.212:8082/artifactory}"
+JFROG_USER="${JFROG_USER:-admin}"
+JFROG_PASS="${JFROG_PASS:-password}"
+HF_TOKEN="${HF_TOKEN:-}"
+DOCKERHUB_USER="${DOCKERHUB_USER:-}"
+DOCKERHUB_PASS="${DOCKERHUB_PASS:-}"
 ONLY_STEP=""
 SKIP_STEPS=()
 WORKDIR="/tmp/ei-airgap-upload"
@@ -115,12 +115,13 @@ jfrog_upload() {
 
 check_prereqs() {
   local missing=()
-  for cmd in curl docker helm pip3 ansible-galaxy git; do
+  for cmd in curl skopeo helm pip3 ansible-galaxy git; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
     error "Missing required tools: ${missing[*]}"
     error "Install them on VM1 before running this script."
+    error "  skopeo: sudo apt install -y skopeo"
     exit 1
   fi
 }
@@ -128,116 +129,104 @@ check_prereqs() {
 # ---------------------------------------------------------------------------
 # Step 3a - Docker Images
 # ---------------------------------------------------------------------------
+# Uses skopeo instead of docker pull/push to avoid Docker daemon HTTPS enforcement.
+# Images are copied from upstream registries directly into ei-docker-local,
+# which is served via ei-docker-virtual.
+# ---------------------------------------------------------------------------
 step_3a() {
   step "3a - Docker Images"
   local jfrog="$JFROG_DOCKER"
+  local dest_repo="ei-docker-local"
+  local skopeo_dest_flags="--dest-tls-verify=false --dest-creds $JFROG_CREDS"
 
-  # All images pulled through JFrog virtual repo (caches in the matching remote repo)
+  # Map of source image -> destination path in JFrog ei-docker-local
+  # Format: "source_registry/image:tag|dest_path:tag"
   local images=(
-    # vLLM CPU (public.ecr.aws)
-    "ei-docker-virtual/q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
-    # GenAI Gateway (ghcr.io - no registry prefix in JFrog path)
-    "ei-docker-virtual/huggingface/text-generation-inference:2.4.0-intel-cpu"
-    "ei-docker-virtual/huggingface/text-embeddings-inference:cpu-1.7"
-    "ei-docker-virtual/berriai/litellm-non_root:main-v1.75.8-stable"
-    # Langfuse (docker.io)
-    "ei-docker-virtual/langfuse/langfuse:3.106.1"
-    "ei-docker-virtual/langfuse/langfuse-worker:3.106.1"
-    # Keycloak + PostgreSQL (docker.io bitnami)
-    "ei-docker-virtual/bitnamilegacy/keycloak:25.0.2-debian-12-r2"
-    "ei-docker-virtual/bitnamilegacy/postgresql:16.3.0-debian-12-r23"
-    "ei-docker-virtual/bitnamilegacy/postgresql:17.5.0-debian-12-r0"
-    # Redis, MinIO, ClickHouse, Valkey, Zookeeper, os-shell (docker.io bitnami)
-    "ei-docker-virtual/bitnamilegacy/redis:8.0.1-debian-12-r0"
-    "ei-docker-virtual/bitnami/minio:2024.12.18"
-    "ei-docker-virtual/bitnami/mc:2024.12.18"
-    "ei-docker-virtual/bitnamilegacy/clickhouse:25.2.1-debian-12-r0"
-    "ei-docker-virtual/bitnamilegacy/valkey:8.0.2-debian-12-r2"
-    "ei-docker-virtual/bitnamilegacy/zookeeper:3.9.3-debian-12-r8"
-    "ei-docker-virtual/bitnamilegacy/os-shell:12-debian-12-r48"
-    # etcd (docker.io bitnami)
-    "ei-docker-virtual/bitnamilegacy/etcd:3.5.10-debian-11-r2"
-    # APISIX (docker.io)
-    "ei-docker-virtual/apache/apisix:3.9.1-debian"
-    # Ingress-nginx (registry.k8s.io)
-    "ei-docker-virtual/ingress-nginx/controller:v1.12.2"
-    "ei-docker-virtual/ingress-nginx/kube-webhook-certgen:v1.5.3"
-    # Kubernetes core components (registry.k8s.io)
-    "ei-docker-virtual/pause:3.10"
-    "ei-docker-virtual/kube-apiserver:v1.30.4"
-    "ei-docker-virtual/kube-controller-manager:v1.30.4"
-    "ei-docker-virtual/kube-scheduler:v1.30.4"
-    "ei-docker-virtual/kube-proxy:v1.30.4"
-    "ei-docker-virtual/coredns/coredns:v1.11.1"
-    "ei-docker-virtual/dns/k8s-dns-node-cache:1.22.28"
-    "ei-docker-virtual/cpa/cluster-proportional-autoscaler:v1.8.8"
-    # Calico (quay.io)
-    "ei-docker-virtual/calico/node:v3.28.1"
-    "ei-docker-virtual/calico/cni:v3.28.1"
-    "ei-docker-virtual/calico/kube-controllers:v3.28.1"
-    "ei-docker-virtual/calico/pod2daemon-flexvol:v3.28.1"
-    # NRI plugins (ghcr.io)
-    "ei-docker-virtual/containers/nri-plugins/nri-resource-policy-balloons:v0.12.2"
-    "ei-docker-virtual/containers/nri-plugins/nri-config-manager:v0.12.2"
-    # Misc (docker.io)
-    "ei-docker-virtual/library/nginx:1.25.2-alpine"
-    "ei-docker-virtual/library/registry:2"
-    "ei-docker-virtual/ubuntu:22.04"
-    "ei-docker-virtual/rancher/local-path-provisioner:v0.0.24"
-    # Kubernetes Dashboard (docker.io)
-    "ei-docker-virtual/kubernetesui/dashboard:v2.7.0"
-    "ei-docker-virtual/kubernetesui/metrics-scraper:v1.0.8"
-    # OpenVINO (docker.io)
-    "ei-docker-virtual/openvino/model_server:latest"
+    "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2|q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
+    "ghcr.io/huggingface/text-generation-inference:2.4.0-intel-cpu|huggingface/text-generation-inference:2.4.0-intel-cpu"
+    "ghcr.io/huggingface/text-embeddings-inference:cpu-1.7|huggingface/text-embeddings-inference:cpu-1.7"
+    "ghcr.io/berriai/litellm-non_root:main-v1.75.8-stable|berriai/litellm-non_root:main-v1.75.8-stable"
+    "docker.io/langfuse/langfuse:3.106.1|langfuse/langfuse:3.106.1"
+    "docker.io/langfuse/langfuse-worker:3.106.1|langfuse/langfuse-worker:3.106.1"
+    "docker.io/bitnamilegacy/keycloak:25.0.2-debian-12-r2|bitnamilegacy/keycloak:25.0.2-debian-12-r2"
+    "docker.io/bitnamilegacy/postgresql:16.3.0-debian-12-r23|bitnamilegacy/postgresql:16.3.0-debian-12-r23"
+    "docker.io/bitnamilegacy/postgresql:17.5.0-debian-12-r0|bitnamilegacy/postgresql:17.5.0-debian-12-r0"
+    "docker.io/bitnamilegacy/redis:8.0.1-debian-12-r0|bitnamilegacy/redis:8.0.1-debian-12-r0"
+    "docker.io/bitnami/minio:2024.12.18|bitnami/minio:2024.12.18"
+    "docker.io/bitnami/mc:2024.12.18|bitnami/mc:2024.12.18"
+    "docker.io/bitnamilegacy/clickhouse:25.2.1-debian-12-r0|bitnamilegacy/clickhouse:25.2.1-debian-12-r0"
+    "docker.io/bitnamilegacy/valkey:8.0.2-debian-12-r2|bitnamilegacy/valkey:8.0.2-debian-12-r2"
+    "docker.io/bitnamilegacy/zookeeper:3.9.3-debian-12-r8|bitnamilegacy/zookeeper:3.9.3-debian-12-r8"
+    "docker.io/bitnamilegacy/os-shell:12-debian-12-r48|bitnamilegacy/os-shell:12-debian-12-r48"
+    "docker.io/bitnamilegacy/etcd:3.5.10-debian-11-r2|bitnamilegacy/etcd:3.5.10-debian-11-r2"
+    "docker.io/apache/apisix:3.9.1-debian|apache/apisix:3.9.1-debian"
+    "registry.k8s.io/ingress-nginx/controller:v1.12.2|ingress-nginx/controller:v1.12.2"
+    "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.3|ingress-nginx/kube-webhook-certgen:v1.5.3"
+    "registry.k8s.io/pause:3.10|pause:3.10"
+    "registry.k8s.io/kube-apiserver:v1.30.4|kube-apiserver:v1.30.4"
+    "registry.k8s.io/kube-controller-manager:v1.30.4|kube-controller-manager:v1.30.4"
+    "registry.k8s.io/kube-scheduler:v1.30.4|kube-scheduler:v1.30.4"
+    "registry.k8s.io/kube-proxy:v1.30.4|kube-proxy:v1.30.4"
+    "registry.k8s.io/coredns/coredns:v1.11.1|coredns/coredns:v1.11.1"
+    "registry.k8s.io/dns/k8s-dns-node-cache:1.22.28|dns/k8s-dns-node-cache:1.22.28"
+    "registry.k8s.io/cpa/cluster-proportional-autoscaler:v1.8.8|cpa/cluster-proportional-autoscaler:v1.8.8"
+    "quay.io/calico/node:v3.28.1|calico/node:v3.28.1"
+    "quay.io/calico/cni:v3.28.1|calico/cni:v3.28.1"
+    "quay.io/calico/kube-controllers:v3.28.1|calico/kube-controllers:v3.28.1"
+    "quay.io/calico/pod2daemon-flexvol:v3.28.1|calico/pod2daemon-flexvol:v3.28.1"
+    "ghcr.io/containers/nri-plugins/nri-resource-policy-balloons:v0.12.2|containers/nri-plugins/nri-resource-policy-balloons:v0.12.2"
+    "ghcr.io/containers/nri-plugins/nri-config-manager:v0.12.2|containers/nri-plugins/nri-config-manager:v0.12.2"
+    "docker.io/library/nginx:1.25.2-alpine|library/nginx:1.25.2-alpine"
+    "docker.io/library/registry:2|library/registry:2"
+    "docker.io/library/ubuntu:22.04|library/ubuntu:22.04"
+    "docker.io/rancher/local-path-provisioner:v0.0.24|rancher/local-path-provisioner:v0.0.24"
+    "docker.io/kubernetesui/dashboard:v2.7.0|kubernetesui/dashboard:v2.7.0"
+    "docker.io/kubernetesui/metrics-scraper:v1.0.8|kubernetesui/metrics-scraper:v1.0.8"
+    "docker.io/openvino/model_server:latest|openvino/model_server:latest"
+    # busybox:1.28 - old tag not available via v2 API; copy latest and push as 1.28
+    "docker.io/library/busybox:latest|library/busybox:1.28"
   )
 
-  local pulled=0 failed=0 fail_list=()
-  for img in "${images[@]}"; do
-    info "Pulling $jfrog/$img"
-    if run docker pull "$jfrog/$img"; then
-      ((pulled++))
+  local copied=0 failed=0 fail_list=()
+  for entry in "${images[@]}"; do
+    local src="${entry%%|*}"
+    local dest_path="${entry##*|}"
+    local dest="docker://$jfrog/$dest_repo/$dest_path"
+    info "Copying $src -> $dest_repo/$dest_path"
+    if run skopeo copy --src-tls-verify=false $skopeo_dest_flags \
+        "docker://$src" "$dest"; then
+      copied=$((copied+1))
     else
-      warn "Failed to pull: $img"
-      ((failed++))
-      fail_list+=("$img")
+      warn "Failed: $src"
+      failed=$((failed+1))
+      fail_list+=("$src")
     fi
   done
 
-  # nginx: also pull by amd64 digest to force platform-specific manifest caching
-  info "Pulling nginx by amd64 digest (forces platform-specific manifest cache)"
-  run docker pull --platform linux/amd64 "$jfrog/ei-docker-virtual/library/nginx:1.25.2-alpine"
-  run docker pull "$jfrog/ei-docker-virtual/library/nginx@sha256:fc2d39a0d6565db4bd6c94aa7b5efc2da67734cc97388afb5c72369a24bcfaea"
-
-  # Manual push: busybox:1.28
-  # Docker Hub v2 API drops manifests for very old tags - JFrog remote returns "manifest unknown"
-  info "Pushing busybox:1.28 to ei-docker-local (old tag, JFrog remote can't proxy it)"
-  if run docker pull "$jfrog/ei-docker-virtual/library/busybox:latest"; then
-    run docker tag "$jfrog/ei-docker-virtual/library/busybox:latest" "$jfrog/ei-docker-local/library/busybox:1.28"
-    run docker push "$jfrog/ei-docker-local/library/busybox:1.28"
-  else
-    warn "Could not pull busybox:latest through JFrog - skipping busybox:1.28 manual push"
-  fi
-
-  # Manual push: apisix-ingress-controller:1.8.0
-  # Not cached in any JFrog remote - must pull directly from Docker Hub
+  # apisix-ingress-controller:1.8.0 - not in any remote; pull from Docker Hub with credentials
   if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
-    info "Pushing apisix-ingress-controller:1.8.0 to ei-docker-local"
-    run docker login -u "$DOCKERHUB_USER" -p "$DOCKERHUB_PASS" docker.io
-    run docker pull docker.io/apache/apisix-ingress-controller:1.8.0
-    run docker tag apache/apisix-ingress-controller:1.8.0 \
-      "$jfrog/ei-docker-local/apache/apisix-ingress-controller:1.8.0"
-    run docker push "$jfrog/ei-docker-local/apache/apisix-ingress-controller:1.8.0"
+    info "Copying apisix-ingress-controller:1.8.0 from Docker Hub -> ei-docker-local"
+    if run skopeo copy \
+        --src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS" \
+        $skopeo_dest_flags \
+        "docker://docker.io/apache/apisix-ingress-controller:1.8.0" \
+        "docker://$jfrog/$dest_repo/apache/apisix-ingress-controller:1.8.0"; then
+      copied=$((copied+1))
+    else
+      warn "Failed: apisix-ingress-controller:1.8.0"
+      failed=$((failed+1))
+    fi
   else
-    warn "Skipping apisix-ingress-controller:1.8.0 manual push - pass --dockerhub-user and --dockerhub-pass"
+    warn "Skipping apisix-ingress-controller:1.8.0 - pass --dockerhub-user and --dockerhub-pass"
   fi
 
-  success "3a complete: pulled=$pulled  failed=$failed"
+  success "3a complete: copied=$copied  failed=$failed"
   if [[ $failed -gt 0 ]]; then
     warn "Failed images:"
     for img in "${fail_list[@]}"; do warn "  $img"; done
   fi
 
-  # Verify nginx is properly cached (requires Docker Accept headers)
+  # Verify nginx is properly cached
   info "Verifying nginx manifest is accessible in JFrog..."
   local http_code
   http_code=$(curl -s -u "$JFROG_CREDS" \

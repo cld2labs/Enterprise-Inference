@@ -21,9 +21,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-JFROG_URL="${JFROG_URL}"
-JFROG_USER="${JFROG_USER}"
-JFROG_PASS="${JFROG_PASS}"
+JFROG_URL="${JFROG_URL:-http://100.67.177.217:8082/artifactory}"
+JFROG_USER="${JFROG_USER:-admin}"
+JFROG_PASS="${JFROG_PASS:-password}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
