@@ -179,7 +179,8 @@ Click Finish to complete the wizard.
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
 
 Once the license is active, run `jfrog-setup.sh`. This script does everything in one go:
-creates all repositories, enables anonymous access, and uploads all EI assets to JFrog.
+creates all repositories, enables anonymous access, uploads all EI assets to JFrog, and
+sets all remote repos to Offline at the end.
 
 > Make sure you have at least 80 GB of free disk space on VM1 before starting. The Llama
 > 3.1 8B model alone is about 30 GB.
@@ -202,6 +203,10 @@ chmod +x jfrog-setup.sh
 
 This will take a while as it downloads and uploads Docker images, Helm charts, Python
 packages, binaries, and the LLM models.
+
+> The `--hf-token` flag is only needed for the model download steps (3i and 3j). If you
+> do not need the LLM models uploaded to JFrog, add `--skip 3i --skip 3j` to the command
+> and omit the `--hf-token` flag.
 
 ### All available options
 
@@ -238,7 +243,8 @@ If you want to run or re-run a specific step instead of the full script:
 ./jfrog-setup.sh --step 4       # Set remote repos to Offline only
 ```
 
-### What each step does
+<details>
+<summary>What each step does (click to expand)</summary>
 
 **Step 1 - Create repositories**
 
@@ -311,20 +317,14 @@ do not need this model.
 Sets all remote repos to Offline so JFrog only serves cached content and does not try to
 fetch anything new from the internet. This is the final step that enforces the true airgap.
 
+</details>
+
 ---
 
 ## Troubleshooting
 
-### JFrog UI not accessible from local machine
-
-JFrog listens on localhost by default. Open a new terminal window (not the one where you
-are already SSH'd into VM1) and run:
-
-```bash
-ssh -L 8082:localhost:8082 user@<VM1-IP> -N
-```
-
-Leave that terminal open and open `http://localhost:8082` in your browser.
+<details>
+<summary>Click to expand</summary>
 
 ### Use skopeo to copy Docker images, not docker
 
@@ -416,3 +416,5 @@ curl -u admin:<password> -T index.yaml \
 
 > Step 3b of `jfrog-setup.sh` does this automatically. Only run this manually if you are
 > uploading charts outside of the script.
+
+</details>
