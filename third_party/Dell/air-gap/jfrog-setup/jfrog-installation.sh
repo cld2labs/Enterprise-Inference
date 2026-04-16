@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-# install-vm1.sh
+# jfrog-installation.sh
 #
 # Step 1 of 2 for EI airgap VM1 setup.
 # Installs all required tools and JFrog Artifactory on VM1.
@@ -12,10 +12,10 @@
 #      (SSH tunnel: ssh -L 8082:localhost:8082 user@<VM1-IP> -N  then open http://localhost:8082)
 #   2. Log in with admin / password
 #   3. Activate license: Admin → Artifactory License → paste trial key → Save
-#   4. Run jfrog-setup-all.sh to create repos and upload all EI assets
+#   4. Run jfrog-setup.sh to create repos and upload all EI assets
 #
 # Usage:
-#   sudo ./install-vm1.sh [OPTIONS]
+#   sudo ./jfrog-installation.sh [OPTIONS]
 #
 # Options:
 #   --jfrog-port PORT   JFrog HTTP port (default: 8082)
@@ -254,7 +254,7 @@ fi
 
 echo "  Once the license is active, run script 2:"
 echo ""
-echo "  ./jfrog-setup-all.sh \\"
+echo "  ./jfrog-setup.sh \\"
 echo "    --jfrog-url http://localhost:${JFROG_PORT}/artifactory \\"
 echo "    --jfrog-user admin \\"
 echo "    --jfrog-pass <password> \\"

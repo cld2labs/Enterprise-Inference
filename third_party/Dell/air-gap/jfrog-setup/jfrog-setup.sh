@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-# jfrog-setup-all.sh
+# jfrog-setup.sh
 #
 # One-shot script that sets up JFrog Artifactory for EI airgapped deployment:
 #   Step 1  - Create all required repositories
@@ -20,7 +20,7 @@
 # Run this script on VM1 (internet-connected machine with JFrog installed).
 #
 # Usage:
-#   ./jfrog-setup-all.sh [OPTIONS]
+#   ./jfrog-setup.sh [OPTIONS]
 #
 # Options:
 #   --jfrog-url URL        JFrog base URL (default: http://localhost:8082/artifactory)
@@ -648,6 +648,31 @@ step_3h() {
     return 0
   fi
 
+  # JFrog defaults to a 100 MB file size limit which blocks safetensors uploads.
+  # Set it to 0 (unlimited) before uploading the model.
+  info "Setting JFrog file upload limit to unlimited..."
+  local cfg_tmp
+  cfg_tmp=$(mktemp /tmp/jfrog-config-XXXXXX.xml)
+  curl -su "$JFROG_CREDS" \
+    "$JFROG_URL/api/system/configuration" > "$cfg_tmp"
+  if grep -q "fileUploadMaxSizeMb" "$cfg_tmp"; then
+    sed -i 's|<fileUploadMaxSizeMb>[0-9]*</fileUploadMaxSizeMb>|<fileUploadMaxSizeMb>0</fileUploadMaxSizeMb>|' "$cfg_tmp"
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" -X POST \
+      "$JFROG_URL/api/system/configuration" \
+      -H "Content-Type: application/xml" \
+      --data-binary @"$cfg_tmp" \
+      -o /dev/null -w "%{http_code}")
+    if [[ "$http_code" == "200" ]]; then
+      success "File upload limit set to unlimited"
+    else
+      warn "Could not update file upload limit (HTTP $http_code) — large files may fail"
+    fi
+  else
+    warn "fileUploadMaxSizeMb not found in config — skipping limit patch"
+  fi
+  rm -f "$cfg_tmp"
+
   local modeldir="$WORKDIR/Llama-3.1-8B-Instruct"
   mkdir -p "$modeldir"
 
@@ -693,6 +718,40 @@ step_3i() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 4 — Set Remote Repos to Offline
+# ---------------------------------------------------------------------------
+step_4() {
+  step_hdr "4 - Set Remote Repos to Offline"
+
+  local remote_repos=(
+    ei-docker-dockerhub
+    ei-docker-ecr
+    ei-docker-ghcr
+    ei-docker-k8s
+    ei-docker-quay
+    ei-pypi-remote
+    ei-debian-ubuntu
+  )
+
+  for repo in "${remote_repos[@]}"; do
+    info "Setting $repo to Offline..."
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" -X POST \
+      "$JFROG_URL/api/repositories/$repo" \
+      -H "Content-Type: application/json" \
+      -d '{"offline":true}' \
+      -o /dev/null -w "%{http_code}")
+    if [[ "$http_code" == "200" ]]; then
+      success "$repo set to Offline"
+    else
+      warn "$repo — unexpected HTTP $http_code (may already be Offline or not exist)"
+    fi
+  done
+
+  success "Step 4 complete — all remote repos set to Offline"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 echo ""
@@ -722,12 +781,7 @@ should_run "3f" && step_3f
 should_run "3g" && step_3g
 should_run "3h" && step_3h
 should_run "3i" && step_3i
+should_run "4"  && step_4
 
 echo ""
-success "All requested steps complete."
-echo ""
-echo "Next steps:"
-echo "  1. Set all JFrog remote repos to Offline:"
-echo "     Admin → Repositories → Edit each remote → Advanced → uncheck Online → Save"
-echo "  2. Set airgap_enabled=on in core/inventory/inference-config.cfg on VM2"
-echo "  3. Run ./inference-stack-deploy.sh on VM2"
+success "JFrog setup is complete. Proceed with EI deployment on VM2."
