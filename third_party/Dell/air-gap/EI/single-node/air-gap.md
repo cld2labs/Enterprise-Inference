@@ -25,7 +25,7 @@ VM1 (internet-connected)          VM2 (airgapped)
 
 Once all assets are uploaded, set every remote repo to Offline in the JFrog UI. When a repo is Offline, JFrog serves only what is already cached and refuses to fetch anything new from the internet. This is what enforces the true airgap.
 
-In the JFrog UI: **Administration (gear icon) -> Repositories -> Edit each remote repo -> Advanced tab -> uncheck Online -> Save**
+In the JFrog UI: Administration -> Repositories -> Edit each remote repo -> Advanced tab -> uncheck Online -> Save
 
 Set these repos to Offline:
 
@@ -64,8 +64,8 @@ sudo iptables -I OUTPUT 1 -m state --state ESTABLISHED,RELATED -j ACCEPT
 sudo iptables -I OUTPUT 2 -o lo -j ACCEPT
 sudo iptables -I OUTPUT 3 -d 127.0.0.0/8 -j ACCEPT
 sudo iptables -I OUTPUT 4 -d 10.0.0.0/8 -j ACCEPT
-sudo iptables -I OUTPUT 5 -d 100.67.0.0/16 -j ACCEPT   # LAN subnet containing VM1 and VM2
-sudo iptables -I OUTPUT 6 -d 100.64.0.0/10 -j ACCEPT   # SSH client subnet - adjust if your client IP differs
+sudo iptables -I OUTPUT 5 -d <LAN-SUBNET>/16 -j ACCEPT   # LAN subnet containing VM1 and VM2
+sudo iptables -I OUTPUT 6 -d <SSH-CLIENT-SUBNET>/24 -j ACCEPT   # SSH client subnet - adjust to match your client IP
 sudo iptables -I OUTPUT 7 -d 192.168.0.0/16 -j ACCEPT
 sudo iptables -A OUTPUT -j DROP
 
