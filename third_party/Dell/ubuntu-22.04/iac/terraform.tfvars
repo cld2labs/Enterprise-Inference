@@ -1,4 +1,4 @@
-idrac_endpoint     = "https://100.67.177.208"
+idrac_endpoint     = "https://x.x.x.x"
 idrac_user         = "root"
 idrac_password     = "calvin"
 idrac_ssl_insecure = true

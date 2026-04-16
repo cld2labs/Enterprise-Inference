@@ -11,7 +11,7 @@
 ---
 
 ## Airgap Approach: JFrog Artifactory on VM1 as Mirror
-VM1 IP: `100.67.152.212:8082` — VM2 pulls everything from JFrog instead of internet.
+VM1: runs JFrog Artifactory on port 8082 — VM2 pulls everything from JFrog instead of internet.
 
 ### JFrog Repos in Use
 ```
@@ -46,21 +46,21 @@ Charts are uploaded via **HTTP REST API** and `index.yaml` must be **manually ge
 ```bash
 # 1. Upload chart tarballs
 curl -u admin:password -T ingress-nginx-4.12.2.tgz \
-  "http://100.67.152.212:8082/artifactory/ei-helm-local/ingress-nginx-4.12.2.tgz"
+  "http://<VM1-IP>:8082/artifactory/ei-helm-local/ingress-nginx-4.12.2.tgz"
 curl -u admin:password -T langfuse-1.5.1.tgz \
-  "http://100.67.152.212:8082/artifactory/ei-helm-local/langfuse-1.5.1.tgz"
+  "http://<VM1-IP>:8082/artifactory/ei-helm-local/langfuse-1.5.1.tgz"
 curl -u admin:password -T apisix-2.8.1.tgz \
-  "http://100.67.152.212:8082/artifactory/ei-helm-local/apisix-2.8.1.tgz"
+  "http://<VM1-IP>:8082/artifactory/ei-helm-local/apisix-2.8.1.tgz"
 curl -u admin:password -T keycloak-22.1.0.tgz \
-  "http://100.67.152.212:8082/artifactory/ei-helm-local/keycloak-22.1.0.tgz"
+  "http://<VM1-IP>:8082/artifactory/ei-helm-local/keycloak-22.1.0.tgz"
 
 # 2. Generate and upload index.yaml (REQUIRED — JFrog does not auto-generate it for HelmOCI)
 mkdir ~/helm-charts-index
 cp ingress-nginx-4.12.2.tgz langfuse-1.5.1.tgz apisix-2.8.1.tgz keycloak-22.1.0.tgz ~/helm-charts-index/
 cd ~/helm-charts-index
-helm repo index . --url http://100.67.152.212:8082/artifactory/ei-helm-local
+helm repo index . --url http://<VM1-IP>:8082/artifactory/ei-helm-local
 curl -u admin:password -T index.yaml \
-  "http://100.67.152.212:8082/artifactory/ei-helm-local/index.yaml"
+  "http://<VM1-IP>:8082/artifactory/ei-helm-local/index.yaml"
 ```
 
 **Validated** ✅ — all 4 charts served via `helm search repo ei-helm`:
@@ -73,7 +73,7 @@ ei-helm/langfuse        1.5.1
 
 **To add ei-helm-local as helm repo:**
 ```bash
-helm repo add ei-helm http://100.67.152.212:8082/artifactory/ei-helm-local --force-update
+helm repo add ei-helm http://<VM1-IP>:8082/artifactory/ei-helm-local --force-update
 helm repo update
 ```
 
@@ -123,8 +123,55 @@ helm repo update
 
 **How to pre-cache an image** (run on VM1 — JFrog fetches and caches from internet):
 ```bash
-docker pull 100.67.152.212:8082/ei-docker-virtual/<image>:<tag>
+docker pull <VM1-IP>:8082/ei-docker-virtual/<image>:<tag>
 ```
+
+**⚠️ Docker 29.x breaks `docker pull` through HTTP JFrog** — Docker 29.x forces HTTPS even with `insecure-registries` configured in `/etc/docker/daemon.json`. The `tls: unrecognized name` error appears despite the config being valid and loaded.
+
+**Fix: use `skopeo` instead of `docker pull/push`** — skopeo respects HTTP registries properly:
+```bash
+# Install
+sudo apt install -y skopeo
+
+# Copy image from upstream directly into ei-docker-local (served via ei-docker-virtual)
+skopeo copy --src-tls-verify=false --dest-tls-verify=false \
+  --dest-creds admin:password \
+  docker://<upstream-registry>/<image>:<tag> \
+  docker://<VM1-IP>:8082/ei-docker-local/<image>:<tag>
+```
+
+**Key rules when using skopeo with JFrog:**
+- Push to `ei-docker-local` (local repo) — NOT `ei-docker-virtual` (virtual repos reject pushes)
+- `ei-docker-local` must be a member of `ei-docker-virtual` so images are served via the virtual repo
+- Use `--dest-tls-verify=false` for HTTP JFrog
+
+**JFrog anonymous access — how to enable correctly (JFrog 7.x):**
+The UI toggle "Allow Anonymous Access" sets `buildGlobalBasicReadForAnonymous=true` but NOT `enabledForAnonymous`. Must patch the XML config directly:
+```bash
+# Get current config
+curl -su "admin:password" "http://<jfrog>:8082/artifactory/api/system/configuration" > /tmp/jfrog-config.xml
+# Set enabledForAnonymous to true
+sed -i 's/<enabledForAnonymous>false<\/enabledForAnonymous>/<enabledForAnonymous>true<\/enabledForAnonymous>/' /tmp/jfrog-config.xml
+# Repost
+curl -su "admin:password" -X POST "http://<jfrog>:8082/artifactory/api/system/configuration" \
+  -H "Content-Type: application/xml" --data-binary @/tmp/jfrog-config.xml
+```
+
+**JFrog anonymous permissions — virtual repos not supported:**
+Virtual repos (e.g. `ei-docker-virtual`) cannot be added to permission targets — JFrog returns 400. Add individual local + remote repos instead:
+```bash
+# Set anonymous read on all docker repos
+python3 -c "
+import json
+perm={'name':'anonymous-user','includesPattern':'**','excludesPattern':'','repositories':['ei-docker-local','ei-docker-dockerhub','ei-docker-ecr','ei-docker-ghcr','ei-docker-k8s','ei-docker-quay','ANY REMOTE'],'principals':{'users':{'anonymous':['r']}}}
+open('/tmp/perm.json','w').write(json.dumps(perm))
+"
+curl -su "admin:password" -X PUT \
+  "http://<jfrog>:8082/artifactory/api/security/permissions/anonymous-user" \
+  -H "Content-Type: application/json" -d @/tmp/perm.json
+```
+
+**`upload-to-jfrog.sh` now uses skopeo** — the script in `third_party/Dell/air-gap/jfrog-setup/upload-to-jfrog.sh` was updated to use skopeo for all Docker image copies (step 3a). Images are copied from upstream registries directly into `ei-docker-local`.
 
 **Helm charts** (all uploaded to `ei-helm-local` as HTTP tarballs + index.yaml):
 | Chart | Version |
@@ -166,19 +213,19 @@ requests, requests-oauthlib, resolvelib, rpds-py, six, typing-extensions, urllib
 - Docker Hub drops manifests for very old tags from v2 API — JFrog remote can't fetch them
 - Fix: pull a working equivalent tag, retag as the required version, push to `ei-docker` local:
   ```bash
-  docker pull 100.67.152.212:8082/ei-docker-virtual/library/busybox:latest
-  docker tag ... 100.67.152.212:8082/ei-docker/library/busybox:1.28
-  docker push 100.67.152.212:8082/ei-docker/library/busybox:1.28
+  docker pull <VM1-IP>:8082/ei-docker-virtual/library/busybox:latest
+  docker tag ... <VM1-IP>:8082/ei-docker/library/busybox:1.28
+  docker push <VM1-IP>:8082/ei-docker/library/busybox:1.28
   ```
 - If Docker Hub rate limit hit: `docker login -u <user> -p <pat>` first; rotate PAT after use
 
 **How to find missing images when deployment fails with 404 on JFrog:**
 Image names come from `core/kubespray/roles/kubespray-defaults/defaults/main/download.yml`. The error pattern is:
 ```
-trying next host - response was http.StatusNotFound" host="100.67.152.212:8082"
+trying next host - response was http.StatusNotFound" host="<VM1-IP>:8082"
 trying next host" error="...dial tcp...: i/o timeout" host=<registry>
 ```
-Fix: on VM1, set the relevant JFrog remote repo to Online, `docker pull 100.67.152.212:8082/ei-docker-virtual/<image>:<tag>`, then set back to Offline.
+Fix: on VM1, set the relevant JFrog remote repo to Online, `docker pull <VM1-IP>:8082/ei-docker-virtual/<image>:<tag>`, then set back to Offline.
 
 ---
 
@@ -187,7 +234,7 @@ Fix: on VM1, set the relevant JFrog remote repo to Online, `docker pull 100.67.1
 ### Airgap variables added to `inference-config.cfg`
 ```
 airgap_enabled=off        ← flip to on for VM2 airgap deployment
-jfrog_url=http://100.67.152.212:8082/artifactory
+jfrog_url=http://<VM1-IP>:8082/artifactory
 jfrog_username=admin
 jfrog_password=password
 ```
@@ -198,7 +245,7 @@ helm_repo_ingress_nginx: "{{ jfrog_url + '/ei-helm-virtual' if airgap_enabled | 
 helm_repo_langfuse:      "{{ jfrog_url + '/ei-helm-virtual' if airgap_enabled | bool else 'https://langfuse.github.io/langfuse-k8s' }}"
 helm_repo_apisix:        "{{ jfrog_url + '/ei-helm-virtual' if airgap_enabled | bool else 'https://charts.apiseven.com' }}"
 helm_oci_jfrog_host:     "{{ jfrog_url | regex_replace('^https?://', '') | regex_replace('/.*$', '') }}"
-# helm_oci_jfrog_host extracts '100.67.152.212:8082' from jfrog_url for use in helm OCI pull commands
+# helm_oci_jfrog_host extracts '<VM1-IP>:8082' from jfrog_url for use in helm OCI pull commands
 ```
 
 ### Shell scripts — JFrog vars passed as --extra-vars
@@ -287,7 +334,7 @@ Fixed by making `helm dependency update` internet-only and adding an airgap path
 3. `helm pull oci://{{ helm_oci_jfrog_host }}/bitnamicharts/redis --version 21.1.3 --plain-http`
 4. `helm dependency build` (uses local tarballs, skips internet)
 
-**Note**: `--plain-http` is required because JFrog runs on HTTP. JFrog's `ei-docker-dockerhub` (remote → `registry-1.docker.io`) caches the bitnami chart OCI layers and serves them via `oci://100.67.152.212:8082/bitnamicharts/...`.
+**Note**: `--plain-http` is required because JFrog runs on HTTP. JFrog's `ei-docker-dockerhub` (remote → `registry-1.docker.io`) caches the bitnami chart OCI layers and serves them via `oci://<VM1-IP>:8082/bitnamicharts/...`.
 
 ### containerd mirror — `core/inventory/metadata/all.yml` ✅ WORKING
 ```yaml
@@ -295,7 +342,7 @@ containerd_registries_mirrors:
   - registry: "docker.io"
     prefix: "docker.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://<VM1-IP>:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -303,7 +350,7 @@ containerd_registries_mirrors:
   - registry: "ghcr.io"
     prefix: "ghcr.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://<VM1-IP>:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -311,7 +358,7 @@ containerd_registries_mirrors:
   - registry: "registry.k8s.io"
     prefix: "registry.k8s.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://<VM1-IP>:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -319,7 +366,7 @@ containerd_registries_mirrors:
   - registry: "quay.io"
     prefix: "quay.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://<VM1-IP>:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -327,7 +374,7 @@ containerd_registries_mirrors:
   - registry: "public.ecr.aws"
     prefix: "public.ecr.aws"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://<VM1-IP>:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -360,7 +407,7 @@ for reg in ghcr.io registry.k8s.io quay.io public.ecr.aws; do
   sudo mkdir -p /etc/containerd/certs.d/$reg
   sudo tee /etc/containerd/certs.d/$reg/hosts.toml <<EOF
 server = "https://$reg"
-[host."http://100.67.152.212:8082/v2/ei-docker-virtual"]
+[host."http://<VM1-IP>:8082/v2/ei-docker-virtual"]
   capabilities = ["pull","resolve"]
   override_path = true
 EOF
@@ -406,11 +453,11 @@ sudo rm -f /var/lib/containerd/io.containerd.content.v1.content/blobs/sha256/<ba
 sudo systemctl restart containerd
 ```
 
-### Direct JFrog pull hosts.toml — `/etc/containerd/certs.d/100.67.152.212:8082/hosts.toml`
-For `ctr pull 100.67.152.212:8082/…` direct pulls (not mirror):
+### Direct JFrog pull hosts.toml — `/etc/containerd/certs.d/<VM1-IP>:8082/hosts.toml`
+For `ctr pull <VM1-IP>:8082/…` direct pulls (not mirror):
 ```toml
-server = "http://100.67.152.212:8082"
-[host."http://100.67.152.212:8082"]
+server = "http://<VM1-IP>:8082"
+[host."http://<VM1-IP>:8082"]
   capabilities = ["pull", "resolve"]
   username = "admin"
   password = "password"
@@ -510,7 +557,7 @@ github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
 8. ✅ Upload missing Ansible collections (ansible.posix, kubernetes.core) to ei-generic-binaries
 9. ✅ Add Kubespray template patch to `core/roles/container-engine/containerd/templates/hosts.toml.j2`
 10. ✅ Fix all helm-related URL gaps: apisix repo registration, keycloak OCI chart_ref, genai-gateway OCI subchart dependencies
-11. ✅ Pre-cache all required Docker images in JFrog via `docker pull 100.67.152.212:8082/ei-docker-virtual/<image>:<tag>` on VM1
+11. ✅ Pre-cache all required Docker images in JFrog via `docker pull <VM1-IP>:8082/ei-docker-virtual/<image>:<tag>` on VM1
 12. ✅ Set all JFrog remote repos to Offline in JFrog UI
 13. ✅ Set `airgap_enabled=on` in `inference-config.cfg` on VM2
 14. ✅ Block internet on VM2 — validated: google.com BLOCKED, JFrog REACHABLE
@@ -533,7 +580,7 @@ github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
 28. ✅ K8s deployment complete — keycloak, apisix, ingress, genai-gateway all running; `vllm-llama-3-2-3b-cpu` 1/1 Running
 29. ✅ Fix `vllm-llama-8b-cpu` pod stuck at 0/1 — missing `HF_HUB_OFFLINE=1` caused Hub network validation to hang in airgap; fixed by patching configmap and permanently adding `{% if airgap_enabled %}` guard to all 6 CPU model helm tasks in `deploy-inference-models.yml`
 30. ✅ Fix `prereq-check.sh` pip bootstrap in airgap — Ubuntu disables `ensurepip`; apt blocked in airgap; fixed to download `pip.whl` from JFrog `ei-generic-binaries` and install via `PYTHONPATH=<whl> python3 -m pip install --no-index <whl>`
-    - Requires `pip.whl` uploaded to JFrog: `pip download pip --no-deps -d /tmp/pip-dl/ && curl -u admin:password -T /tmp/pip-dl/pip-*.whl http://100.67.152.212:8082/artifactory/ei-generic-binaries/pip.whl`
+    - Requires `pip.whl` uploaded to JFrog: `pip download pip --no-deps -d /tmp/pip-dl/ && curl -u admin:password -T /tmp/pip-dl/pip-*.whl http://<VM1-IP>:8082/artifactory/ei-generic-binaries/pip.whl`
 31. ✅ Fix `prereq-check.sh` pip.whl rename — JFrog stores wheel as `pip.whl` (generic name) but pip rejects it; fixed by reading version+tag from WHEEL metadata inside the zip and renaming to proper format (e.g. `pip-26.0.1-py3-none-any.whl`) before calling `pip install`
 32. ✅ Fix `setup-env.sh` venv creation in airgap — `python3 -m venv` fails because `python3-pip-whl` / `python3-setuptools-whl` (ensurepip deps) not installed; fixed with two changes:
     - Skip `apt install python3-venv` when `airgap_enabled=yes` (apt has no Debian mirror in JFrog at that point)
@@ -543,21 +590,21 @@ github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
     - Created `ei-debian-virtual` virtual repo aggregating it
     - `setup-env.sh` now auto-writes `/etc/apt/sources.list` to use JFrog in airgap mode (runs before Kubespray, no manual step needed):
       ```
-      deb http://admin:password@100.67.152.212:8082/artifactory/ei-debian-virtual jammy main restricted universe multiverse
-      deb http://admin:password@100.67.152.212:8082/artifactory/ei-debian-virtual jammy-updates main restricted universe multiverse
-      deb http://admin:password@100.67.152.212:8082/artifactory/ei-debian-virtual jammy-security main restricted universe multiverse
+      deb http://admin:password@<VM1-IP>:8082/artifactory/ei-debian-virtual jammy main restricted universe multiverse
+      deb http://admin:password@<VM1-IP>:8082/artifactory/ei-debian-virtual jammy-updates main restricted universe multiverse
+      deb http://admin:password@<VM1-IP>:8082/artifactory/ei-debian-virtual jammy-security main restricted universe multiverse
       ```
 
 34. ✅ Fix `docker.io/library/nginx:1.25.2-alpine` not cached in JFrog — root cause and fix:
     - `ei-docker` local repo referenced in CLAUDE.md did not exist (never created)
-    - `docker pull 100.67.152.212:8082/ei-docker-virtual/library/nginx:1.25.2-alpine` said "manifest unknown" initially because only the manifest list was cached, not the amd64-specific manifest
+    - `docker pull <VM1-IP>:8082/ei-docker-virtual/library/nginx:1.25.2-alpine` said "manifest unknown" initially because only the manifest list was cached, not the amd64-specific manifest
     - JFrog v2 API requires proper Docker Accept headers (`application/vnd.docker.distribution.manifest.v2+json`) — plain `curl` without these headers returns 404 even when image is cached
     - Fix: pull by amd64 digest explicitly to force JFrog to cache the platform-specific manifest and layers:
       ```bash
       # On VM1 — get amd64 digest from manifest list, then pull by digest
-      docker pull --platform linux/amd64 100.67.152.212:8082/ei-docker-virtual/library/nginx:1.25.2-alpine
+      docker pull --platform linux/amd64 <VM1-IP>:8082/ei-docker-virtual/library/nginx:1.25.2-alpine
       # Then pull amd64 digest directly (fc2d39a0... is amd64 digest for 1.25.2-alpine)
-      docker pull 100.67.152.212:8082/ei-docker-virtual/library/nginx@sha256:fc2d39a0d6565db4bd6c94aa7b5efc2da67734cc97388afb5c72369a24bcfaea
+      docker pull <VM1-IP>:8082/ei-docker-virtual/library/nginx@sha256:fc2d39a0d6565db4bd6c94aa7b5efc2da67734cc97388afb5c72369a24bcfaea
       ```
     - **How to verify image is properly cached** (must use Accept headers):
       ```bash
@@ -565,7 +612,7 @@ github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
         -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
         -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
         -o /dev/null -w "%{http_code}" \
-        "http://100.67.152.212:8082/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine"
+        "http://<VM1-IP>:8082/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine"
       # Must return 200
       ```
     - **No local Docker repo needed** — use `ei-docker-dockerhub` remote (already in `ei-docker-virtual`) to cache images; just ensure it is Online when pulling
@@ -587,9 +634,9 @@ github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
     - `apache/apisix-ingress-controller:1.8.0`: not in any JFrog remote cache; pulled directly from Docker Hub, pushed to `ei-docker-local`
     - **Create ei-docker-local**:
       ```bash
-      curl -s -u admin:password -X PUT "http://100.67.152.212:8082/artifactory/api/repositories/ei-docker-local" \
+      curl -s -u admin:password -X PUT "http://<VM1-IP>:8082/artifactory/api/repositories/ei-docker-local" \
         -H "Content-Type: application/json" -d '{"rclass":"local","packageType":"docker"}'
-      curl -s -u admin:password -X POST "http://100.67.152.212:8082/artifactory/api/repositories/ei-docker-virtual" \
+      curl -s -u admin:password -X POST "http://<VM1-IP>:8082/artifactory/api/repositories/ei-docker-virtual" \
         -H "Content-Type: application/json" \
         -d '{"rclass":"virtual","packageType":"docker","repositories":["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay"]}'
       ```
@@ -689,7 +736,7 @@ A Released PV with Retain can be reused: clear its claimRef, then create a new P
 
 ## Airgap Simulation — Block Internet on VM2
 
-**VM IPs**: VM1 (JFrog) = `100.67.152.212`, VM2 = `100.67.153.209` (rebooted — was .208), SSH client = `100.64.29.144`
+**VM IPs**: VM1 (JFrog) = `<VM1-IP>`, VM2 = `100.67.153.209` (rebooted — was .208), SSH client = `100.64.29.144`
 
 ```bash
 # Check SSH source IP first — must be in allowed ranges or you will be locked out
@@ -706,7 +753,7 @@ sudo iptables -A OUTPUT -j DROP
 
 # Verify
 curl -s --max-time 5 https://google.com && echo "OPEN" || echo "BLOCKED"
-curl -s --max-time 5 http://100.67.152.212:8082/artifactory/api/system/ping && echo "JFROG OK"
+curl -s --max-time 5 http://<VM1-IP>:8082/artifactory/api/system/ping && echo "JFROG OK"
 
 # To unblock
 sudo iptables -D OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT

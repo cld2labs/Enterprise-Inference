@@ -1,10 +1,8 @@
 # JFrog Setup for Enterprise Inference Airgapped Deployment
 
-This folder contains automation scripts to set up JFrog Artifactory as a local mirror for Enterprise Inference (EI) airgapped deployments.
-
-## Overview
-
-Airgapped deployment requires all Docker images, Helm charts, PyPI packages, and binaries to be pre-cached on a local repository server (VM1) before the airgapped deployment VM (VM2) pulls them. JFrog Artifactory serves as this local mirror.
+This folder contains scripts to set up JFrog Artifactory on VM1 as a local mirror for
+Enterprise Inference airgapped deployments. VM2 (the airgapped machine) pulls all Docker
+images, Helm charts, PyPI packages, and binaries from JFrog instead of the internet.
 
 ```
 ┌─────────────────────┐           ┌─────────────────────┐
@@ -20,81 +18,57 @@ Airgapped deployment requires all Docker images, Helm charts, PyPI packages, and
 └─────────────────────┘
 ```
 
+## Scripts in this folder
+
+| Script | Purpose |
+|---|---|
+| `install-vm1.sh` | Installs prerequisites and JFrog Artifactory on VM1 |
+| `jfrog-setup-all.sh` | Creates repos, enables anonymous access, uploads all assets |
+| `list-jfrog-assets.py` | Lists everything currently stored in JFrog |
+
 ---
 
-## Step 1 — Install JFrog Artifactory on VM1
+## Step 1 - Get a JFrog Pro Trial License
 
-VM1 must have internet access and be reachable from VM2 over LAN.
+JFrog will not serve content until a license is activated. Get a free 14-day trial key before running any scripts.
 
-### Get a Pro Trial License Key
-
-1. Go to `https://jfrog.com/start-free/`
+1. Go to https://jfrog.com/start-free/
 2. Click **14-day free trial** (not Platform Tour)
 3. Select **Self-Hosted**
-4. Fill in the registration form (company name, phone number with country code)
-5. Click **Confirm and Start**
-6. Check your email — license key arrives within a few minutes
-7. Copy the license key — you will need it during post-install
+4. Fill in the registration form and click **Confirm and Start**
+5. Check your email -- the license key arrives within a few minutes
+6. Copy the key and keep it handy -- you will paste it into the JFrog UI after install
 
-### Pre-install: Install required tools
+---
 
-```bash
-sudo apt update
+## Step 2 - Install JFrog on VM1
 
-sudo apt install -y \
-  jq \
-  curl \
-  wget \
-  skopeo \
-  helm \
-  net-tools \
-  ca-certificates \
-  gnupg \
-  lsb-release \
-  unzip \
-  tar \
-  vim \
-  software-properties-common \
-  python3-pip \
-  git
-```
-
-Fix inotify limits (required to avoid "Too many open files" errors):
+Run `install-vm1.sh` on VM1. It installs all required tools, downloads JFrog, starts the service, and waits until it is ready. VM1 must have internet access.
 
 ```bash
-sudo sysctl fs.inotify.max_user_instances=512
-echo "fs.inotify.max_user_instances=512" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
+cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
+sudo ./install-vm1.sh
 ```
 
-### Install JFrog
+Available options:
 
-```bash
-# 1. Download the installer (auto-resolves [RELEASE] to latest version)
-wget -O jfrog-deb-installer.tar.gz \
-  "https://releases.jfrog.io/artifactory/jfrog-prox/org/artifactory/pro/deb/jfrog-platform-trial-prox/[RELEASE]/jfrog-platform-trial-prox-[RELEASE]-deb.tar.gz"
-
-# 2. Extract
-tar -xvzf jfrog-deb-installer.tar.gz
-
-# 3. Navigate to directory and run installer
-cd jfrog-platform-trial-pro*
-sudo ./install.sh
-
-# 4. Start services
-sudo systemctl start artifactory.service
-sudo systemctl start xray.service
-
-# 5. Verify both are running
-sudo systemctl status artifactory.service
-sudo systemctl status xray.service
+```
+--jfrog-port PORT   JFrog HTTP port (default: 8082)
+--skip-jfrog        Install tools only, skip JFrog installation
 ```
 
-### Post-install
+The script installs these tools: curl, wget, git, jq, skopeo, helm, python3, pip3, ansible.
 
-Access the UI at `http://<VM1-IP>:8082`. Default credentials: `admin` / `password` (you will be prompted to change on first login).
+It also sets `fs.inotify.max_user_instances=512` in `/etc/sysctl.conf` -- this is required to
+prevent "Too many open files" errors when JFrog handles many connections.
 
-**If you cannot access the UI directly** (e.g. VM1 has no browser), set up an SSH tunnel from your local machine:
+When the script finishes, JFrog is running at `http://localhost:8082`.
+
+### Access the JFrog UI
+
+Open a browser on VM1 and go to `http://localhost:8082`.
+
+If VM1 has no browser, set up an SSH tunnel from your local machine:
 
 ```bash
 ssh -L 8082:localhost:8082 user@<VM1-IP> -N
@@ -102,177 +76,202 @@ ssh -L 8082:localhost:8082 user@<VM1-IP> -N
 
 Then open `http://localhost:8082` in your local browser.
 
-**Activate the license:**
-- Admin → Artifactory License → paste the trial license key → Save
+Default login: admin / password. You will be prompted to change the password on first login.
+
+### Activate the license
+
+1. Log in to the JFrog UI
+2. Go to Admin -> Artifactory License
+3. Paste the trial license key and click Save
+
+JFrog will not cache or serve any content until this is done.
 
 ---
 
-## Step 2 — Create JFrog Repositories
+## Step 3 - Create Repos, Enable Access, Upload All Assets
+
+Once the license is active, run `jfrog-setup-all.sh`. This script does everything in one go:
+creates all repositories, enables anonymous access, and uploads all EI assets to JFrog.
+
+### Basic run (no LLM model)
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
-./jfrog-create-repos.sh \
-  --jfrog-url http://<VM1-IP>:8082/artifactory \
+
+./jfrog-setup-all.sh \
+  --jfrog-url http://localhost:8082/artifactory \
   --jfrog-user admin \
-  --jfrog-pass password
+  --jfrog-pass <your-password> \
+  --dockerhub-user <dockerhub-username> \
+  --dockerhub-pass <dockerhub-pat>
 ```
 
-Verify JFrog is reachable:
-```bash
-curl -s -u admin:password http://<VM1-IP>:8082/artifactory/api/system/ping
-```
+Docker Hub credentials are required to pull `apache/apisix-ingress-controller`. If you skip
+them, that image will be skipped and you can push it manually later.
 
-**Repositories created:**
-- **Docker**: ei-docker-local (local), ei-docker-dockerhub/ecr/ghcr/k8s/quay (remotes), ei-docker-virtual (aggregator)
-- **Helm**: ei-helm-local (HelmOCI local), ei-helm-virtual (aggregator)
-- **PyPI**: ei-pypi-local, ei-pypi-remote, ei-pypi-virtual (aggregator)
-- **Debian**: ei-debian-ubuntu (remote → archive.ubuntu.com), ei-debian-virtual (aggregator)
-- **Generic**: ei-generic-binaries, ei-generic-models
-
----
-
-## Step 3 — Enable Anonymous Access
-
-JFrog's UI toggle "Allow Anonymous Access" sets `buildGlobalBasicReadForAnonymous=true` but does NOT set `enabledForAnonymous`. You must patch the XML config directly:
+### With LLM model (optional, needs ~30 GB disk)
 
 ```bash
-# Get current config
-curl -su "admin:password" \
-  "http://<VM1-IP>:8082/artifactory/api/system/configuration" > /tmp/jfrog-config.xml
-
-# Set enabledForAnonymous to true
-sed -i 's/<enabledForAnonymous>false<\/enabledForAnonymous>/<enabledForAnonymous>true<\/enabledForAnonymous>/' \
-  /tmp/jfrog-config.xml
-
-# Apply the change
-curl -su "admin:password" -X POST \
-  "http://<VM1-IP>:8082/artifactory/api/system/configuration" \
-  -H "Content-Type: application/xml" \
-  --data-binary @/tmp/jfrog-config.xml
-```
-
-Then set anonymous read permissions on all Docker repos (virtual repos cannot be in permission targets — add individual repos):
-
-```bash
-python3 -c "
-import json
-perm = {
-  'name': 'anonymous-docker-read',
-  'includesPattern': '**',
-  'excludesPattern': '',
-  'repositories': [
-    'ei-docker-local',
-    'ei-docker-dockerhub',
-    'ei-docker-ecr',
-    'ei-docker-ghcr',
-    'ei-docker-k8s',
-    'ei-docker-quay',
-    'ANY REMOTE'
-  ],
-  'principals': {'users': {'anonymous': ['r']}}
-}
-open('/tmp/perm.json', 'w').write(json.dumps(perm))
-"
-
-curl -su "admin:password" -X PUT \
-  "http://<VM1-IP>:8082/artifactory/api/security/permissions/anonymous-docker-read" \
-  -H "Content-Type: application/json" \
-  -d @/tmp/perm.json
-```
-
----
-
-## Step 4 — Pre-load Assets into JFrog
-
-Run the upload script on VM1. It uses **skopeo** (not docker) to copy images — Docker 29.x forces HTTPS even with `insecure-registries` configured, which breaks HTTP JFrog. Skopeo respects HTTP properly.
-
-```bash
-./upload-to-jfrog.sh \
-  --jfrog-url http://<VM1-IP>:8082/artifactory \
+./jfrog-setup-all.sh \
+  --jfrog-url http://localhost:8082/artifactory \
   --jfrog-user admin \
-  --jfrog-pass password \
+  --jfrog-pass <your-password> \
   --dockerhub-user <dockerhub-username> \
   --dockerhub-pass <dockerhub-pat> \
-  --workdir ~/ei-assets
+  --hf-token hf_xxxxx
 ```
 
-To also upload the LLM model files (requires ~30 GB extra disk):
+You need a HuggingFace token with access to the Meta Llama model. Get one at https://huggingface.co/settings/tokens.
+
+### All available options
+
+```
+--jfrog-url URL        JFrog base URL (default: http://localhost:8082/artifactory)
+--jfrog-user USER      JFrog username (default: admin)
+--jfrog-pass PASS      JFrog password (default: password)
+--hf-token TOKEN       HuggingFace token (only needed for step 3h)
+--dockerhub-user USER  Docker Hub username (needed for apisix-ingress-controller)
+--dockerhub-pass PASS  Docker Hub password or PAT
+--step STEP            Run only one specific step, e.g. --step 3a
+--skip STEP            Skip a specific step (can be repeated)
+--workdir DIR          Where to download files (default: /tmp/ei-airgap-upload)
+--dry-run              Print commands without running them
+```
+
+### Run one step at a time
+
+If you want to run or re-run a specific step:
 
 ```bash
-./upload-to-jfrog.sh \
-  --jfrog-url http://<VM1-IP>:8082/artifactory \
-  --jfrog-user admin \
-  --jfrog-pass password \
-  --hf-token hf_xxxxx \
-  --dockerhub-user <dockerhub-username> \
-  --dockerhub-pass <dockerhub-pat> \
-  --workdir ~/ei-assets
+./jfrog-setup-all.sh --step 1       # Create repositories only
+./jfrog-setup-all.sh --step 2       # Enable anonymous access only
+./jfrog-setup-all.sh --step 3a      # Docker images only
+./jfrog-setup-all.sh --step 3b      # Helm charts only
+./jfrog-setup-all.sh --step 3c      # PyPI packages only
+./jfrog-setup-all.sh --step 3d      # pip bootstrap wheel only
+./jfrog-setup-all.sh --step 3e      # Ansible collections only
+./jfrog-setup-all.sh --step 3f      # apt .deb files only
+./jfrog-setup-all.sh --step 3g      # Kubernetes binaries only
+./jfrog-setup-all.sh --step 3h --hf-token hf_xxxxx   # LLM model only
+./jfrog-setup-all.sh --step 3i      # Kubespray tarball only
 ```
 
-To run a single step:
-```bash
-./upload-to-jfrog.sh --step 3a   # Docker images only
-./upload-to-jfrog.sh --step 3b   # Helm charts only
-./upload-to-jfrog.sh --step 3h --hf-token hf_xxxxx   # LLM model only
-```
+### What each step does
 
-### How Docker images are uploaded to JFrog
+**Step 1 - Create repositories**
 
-Docker 29.x breaks `docker pull/push` through HTTP registries (forces HTTPS). The upload script uses `skopeo copy` instead:
+Creates all 19 JFrog repositories needed for EI:
 
-```bash
-# Install skopeo
-sudo apt install -y skopeo
+Docker repos:
+- `ei-docker-local` -- local repo where images are pushed directly
+- `ei-docker-dockerhub` -- remote proxy for registry-1.docker.io
+- `ei-docker-ecr` -- remote proxy for public.ecr.aws
+- `ei-docker-ghcr` -- remote proxy for ghcr.io
+- `ei-docker-k8s` -- remote proxy for registry.k8s.io
+- `ei-docker-quay` -- remote proxy for quay.io
+- `ei-docker-virtual` -- virtual repo that aggregates all of the above
 
-# Copy an image from upstream directly into JFrog ei-docker-local
-skopeo copy \
-  --src-tls-verify=false \
-  --dest-tls-verify=false \
-  --dest-creds admin:password \
-  docker://<upstream-registry>/<image>:<tag> \
-  docker://<VM1-IP>:8082/ei-docker-local/<image>:<tag>
-```
+Helm repos:
+- `ei-helm-local` -- local repo where chart tarballs are uploaded
+- `ei-helm-ingress-nginx` -- remote proxy for kubernetes.github.io/ingress-nginx
+- `ei-helm-langfuse` -- remote proxy for langfuse.github.io/langfuse-k8s
+- `ei-helm-virtual` -- virtual repo that aggregates all of the above
 
-**Key rules:**
-- Always push to `ei-docker-local` (local repo) — **not** `ei-docker-virtual` (virtual repos reject pushes with "Unable to upload into a virtual repository")
-- `ei-docker-local` is a member of `ei-docker-virtual`, so images pushed there are served via the virtual repo
-- Use `--dest-tls-verify=false` because JFrog runs on HTTP
+PyPI repos:
+- `ei-pypi-local` -- local repo where wheels are uploaded
+- `ei-pypi-remote` -- remote proxy for pypi.org
+- `ei-pypi-virtual` -- virtual repo that aggregates both
 
-**Example — copy vLLM CPU image from ECR into JFrog:**
-```bash
-skopeo copy \
-  --src-tls-verify=false \
-  --dest-tls-verify=false \
-  --dest-creds admin:password \
-  docker://public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2 \
-  docker://<VM1-IP>:8082/ei-docker-local/q9t5s3a7/vllm-cpu-release-repo:v0.10.2
-```
+Debian repos:
+- `ei-debian-ubuntu` -- remote proxy for archive.ubuntu.com/ubuntu
+- `ei-debian-virtual` -- virtual repo that aggregates above
 
-**For very old image tags** (e.g. `busybox:1.28`) that Docker Hub no longer serves via v2 API:
-```bash
-# Pull a working equivalent via JFrog, retag, push to ei-docker-local
-skopeo copy --dest-tls-verify=false --dest-creds admin:password \
-  docker://<VM1-IP>:8082/ei-docker-virtual/library/busybox:latest \
-  docker://<VM1-IP>:8082/ei-docker-local/library/busybox:1.28
-```
+Other repos:
+- `ei-hf-remote` -- remote proxy for huggingface.co
+- `ei-generic-binaries` -- local repo for kubectl, helm, kubespray, binaries
+- `ei-generic-models` -- local repo for LLM model files
 
-**Verify an image is cached in JFrog** (must use Docker Accept headers — plain curl returns 404 even if cached):
-```bash
-curl -s -u admin:password \
-  -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-  -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
-  -o /dev/null -w "%{http_code}" \
-  "http://<VM1-IP>:8082/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine"
-# Must return 200
-```
+**Step 2 - Enable anonymous access**
+
+The JFrog UI toggle "Allow Anonymous Access" does not fully enable anonymous access -- it
+only sets one of two required flags. This step patches the JFrog XML config directly to set
+`enabledForAnonymous=true`, then grants anonymous read permissions on all Docker repos via
+the REST API. This is required so VM2 can pull images without credentials.
+
+**Step 3a - Docker images**
+
+Copies about 40 Docker images from upstream registries into `ei-docker-local` using skopeo.
+Uses skopeo instead of docker pull/push because Docker 29.x forces HTTPS even when
+insecure-registries is configured, which breaks HTTP JFrog. Skopeo handles HTTP correctly.
+
+Images pulled from:
+- public.ecr.aws -- vLLM CPU, bitnami/minio
+- ghcr.io -- TGI, TEI, LiteLLM, NRI plugins
+- docker.io -- langfuse, bitnami, apisix, nginx, ubuntu, openvino, kubernetes-ui
+- registry.k8s.io -- ingress-nginx, kube components, pause, etcd, coredns, calico
+- quay.io -- calico node, CNI, kube-controllers, pod2daemon
+
+**Step 3b - Helm charts**
+
+Pulls 10 Helm charts and uploads them as tarballs to `ei-helm-local`:
+ingress-nginx 4.12.2, langfuse 1.5.1, apisix 2.8.1, keycloak 22.1.0, postgresql 16.7.4,
+redis 21.1.3, clickhouse 8.0.5, minio 14.10.5, valkey 2.2.4, nri-resource-policy-balloons v0.12.2.
+
+Also generates and uploads `index.yaml`. JFrog HelmOCI repos do not auto-generate this file
+so it must be created with `helm repo index` and uploaded manually.
+
+**Step 3c - PyPI packages**
+
+Downloads about 30 Python wheels and uploads them to `ei-pypi-local`:
+ansible, kubernetes SDK, jinja2, cryptography, requests, pyyaml, netaddr, and all their
+dependencies. These are used by the EI deployment playbooks on VM2.
+
+**Step 3d - pip bootstrap wheel**
+
+Downloads the pip wheel itself and uploads it as `ei-generic-binaries/pip.whl`. This is
+needed because Ubuntu disables ensurepip, so pip cannot be bootstrapped the normal way
+in an airgapped environment.
+
+**Step 3e - Ansible collections**
+
+Downloads and uploads 4 Ansible collections to `ei-generic-binaries/ansible-collections/`:
+kubernetes.core 6.3.0, community.general 12.5.0, ansible.posix, community.kubernetes 2.0.1.
+
+**Step 3f - apt .deb files**
+
+Downloads the deb packages for jq (jq, libjq1, libonig5) and uploads them to
+`ei-generic-binaries/apt-debs/`. These are installed on VM2 via dpkg since apt cannot
+reach the internet.
+
+**Step 3g - Kubernetes binaries**
+
+Downloads all binaries that Kubespray needs during cluster setup and uploads them to
+`ei-generic-binaries/` with the same path structure as their original download URLs.
+Includes: kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl,
+helm, nerdctl, yq, kubectx, kubens.
+
+**Step 3h - LLM model (optional)**
+
+Downloads Meta-Llama-3.1-8B-Instruct from HuggingFace and uploads all files to
+`ei-generic-models/Meta-Llama-3.1-8B-Instruct/`. Requires a HuggingFace token with
+access to the Meta Llama model. Skip this step if you will download the model separately.
+
+**Step 3i - Kubespray tarball**
+
+Clones the kubespray repository at tag v2.27.0, tars it, and uploads to
+`ei-generic-binaries/kubespray.tar.gz`. This is used instead of a git clone on VM2
+since VM2 has no internet access.
 
 ---
 
-## Step 5 — Set JFrog Remote Repos to Offline
+## Step 4 - Set Remote Repos to Offline
 
-After all assets are uploaded, set each remote repo to Offline in the JFrog UI to enforce true airgap (serves cached content only, refuses new internet fetches):
+After all assets are uploaded, set the remote repos to Offline in the JFrog UI. When a
+repo is Offline, JFrog serves only what is already cached and refuses to fetch anything
+new from the internet. This is what enforces the true airgap.
 
-**JFrog UI**: Admin → Repositories → Edit each remote → Advanced → uncheck `Online` → Save
+In the JFrog UI: Admin -> Repositories -> Edit each remote repo -> Advanced tab ->
+uncheck **Online** -> Save
 
 Repos to set Offline:
 - ei-docker-dockerhub
@@ -280,41 +279,125 @@ Repos to set Offline:
 - ei-docker-ghcr
 - ei-docker-k8s
 - ei-docker-quay
-- ei-debian-ubuntu
 - ei-pypi-remote
+- ei-debian-ubuntu
 
 ---
 
-## Step 6 — Configure VM2 for Airgap
+## Verify What Is in JFrog
 
-Set airgap variables in `core/inventory/inference-config.cfg` on VM2:
+To see everything currently stored across all repos:
 
-```
-airgap_enabled=on
-jfrog_url=http://<VM1-IP>:8082/artifactory
-jfrog_username=admin
-jfrog_password=password
-```
-
-Then run the deployment:
 ```bash
-./inference-stack-deploy.sh
+python3 list-jfrog-assets.py
+
+# With custom URL or credentials
+python3 list-jfrog-assets.py \
+  --jfrog-url http://localhost:8082/artifactory \
+  --jfrog-user admin \
+  --jfrog-pass <password>
 ```
 
 ---
 
 ## Troubleshooting
 
-### JFrog unreachable from VM1 itself
-JFrog only listens on `localhost` — use `http://localhost:8082/artifactory` when running scripts on VM1 directly.
+### JFrog UI not accessible from local machine
 
-### Image pull returns 404 on JFrog
-Image may only have the manifest list cached, not the amd64-specific manifest. Pull by digest explicitly on VM1 to force JFrog to cache the platform-specific layers:
+JFrog listens on localhost by default. Set up an SSH tunnel:
+
 ```bash
-skopeo copy --dest-tls-verify=false --dest-creds admin:password \
-  docker://<upstream>/<image>:<tag> \
+ssh -L 8082:localhost:8082 user@<VM1-IP> -N
+```
+
+Then open `http://localhost:8082` in your browser.
+
+### Always use skopeo to copy Docker images, not docker
+
+Docker 29.x forces HTTPS even when `insecure-registries` is set in `/etc/docker/daemon.json`.
+Use skopeo instead -- it handles HTTP correctly:
+
+```bash
+skopeo copy \
+  --src-tls-verify=false \
+  --dest-tls-verify=false \
+  --dest-creds admin:<password> \
+  docker://<upstream-registry>/<image>:<tag> \
   docker://<VM1-IP>:8082/ei-docker-local/<image>:<tag>
 ```
 
-### `((var++))` exits with code 1 in bash scripts with `set -e`
-Arithmetic `((var++))` returns exit code 1 when the result is 0 (first iteration), causing the script to exit under `set -euo pipefail`. Use `var=$((var+1))` instead.
+Always push to `ei-docker-local`, not `ei-docker-virtual`. Virtual repos reject pushes.
+Since `ei-docker-local` is a member of `ei-docker-virtual`, images pushed to local are
+automatically served through the virtual repo.
+
+### Verifying an image is cached
+
+Plain curl returns 404 even when an image is cached in JFrog. You must include Docker
+manifest Accept headers:
+
+```bash
+curl -s -u admin:<password> \
+  -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+  -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+  -o /dev/null -w "%{http_code}" \
+  "http://<VM1-IP>:8082/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine"
+```
+
+A response of 200 means the image is properly cached. Anything else means it is not.
+
+### Very old image tags not available via Docker Hub
+
+Docker Hub no longer serves very old tags (like busybox:1.28) via the v2 API so JFrog
+remote repos cannot proxy them. The workaround is to pull a working tag and push it under
+the old tag name:
+
+```bash
+skopeo copy \
+  --dest-tls-verify=false \
+  --dest-creds admin:<password> \
+  docker://<VM1-IP>:8082/ei-docker-virtual/library/busybox:latest \
+  docker://<VM1-IP>:8082/ei-docker-local/library/busybox:1.28
+```
+
+### Anonymous access UI toggle does not fully work
+
+The "Allow Anonymous Access" toggle in the JFrog UI sets `buildGlobalBasicReadForAnonymous`
+but does not set `enabledForAnonymous`. If VM2 cannot pull images without credentials, patch
+the config manually:
+
+```bash
+curl -su "admin:<password>" \
+  "http://localhost:8082/artifactory/api/system/configuration" > /tmp/jfrog-config.xml
+
+sed -i 's/<enabledForAnonymous>false<\/enabledForAnonymous>/<enabledForAnonymous>true<\/enabledForAnonymous>/' \
+  /tmp/jfrog-config.xml
+
+curl -su "admin:<password>" -X POST \
+  "http://localhost:8082/artifactory/api/system/configuration" \
+  -H "Content-Type: application/xml" \
+  --data-binary @/tmp/jfrog-config.xml
+```
+
+This is handled automatically by step 2 of `jfrog-setup-all.sh`.
+
+### Virtual repos cannot be in permission targets
+
+If you try to add `ei-docker-virtual` to a JFrog permission target you will get HTTP 400.
+Add the individual local and remote repos instead. Step 2 of `jfrog-setup-all.sh` does
+this correctly.
+
+### Helm index.yaml is not generated automatically
+
+JFrog HelmOCI repos do not auto-generate `index.yaml`. After uploading chart tarballs,
+generate and upload the index file:
+
+```bash
+mkdir ~/helm-index
+cp *.tgz ~/helm-index
+cd ~/helm-index
+helm repo index . --url http://localhost:8082/artifactory/ei-helm-local
+curl -u admin:<password> -T index.yaml \
+  "http://localhost:8082/artifactory/ei-helm-local/index.yaml"
+```
+
+Step 3b of `jfrog-setup-all.sh` does this automatically.
