@@ -14,8 +14,9 @@
 #   Step 3e - Ansible collections
 #   Step 3f - apt .deb files for jq
 #   Step 3g - Kubernetes / Kubespray binaries
-#   Step 3h - LLM model files (optional, requires HuggingFace token)
-#   Step 3i - Kubespray tarball
+#   Step 3h - Kubespray tarball
+#   Step 3i - Meta-Llama-3.1-8B-Instruct model (optional, requires HuggingFace token)
+#   Step 3j - Meta-Llama-3.2-3B-Instruct model (optional, requires HuggingFace token)
 #
 # Run this script on VM1 (internet-connected machine with JFrog installed).
 #
@@ -26,7 +27,7 @@
 #   --jfrog-url URL        JFrog base URL (default: http://localhost:8082/artifactory)
 #   --jfrog-user USER      JFrog username (default: admin)
 #   --jfrog-pass PASS      JFrog password (default: password)
-#   --hf-token TOKEN       HuggingFace token (required only for step 3h)
+#   --hf-token TOKEN       HuggingFace token (required for steps 3i and 3j)
 #   --dockerhub-user USER  Docker Hub username (required for apisix-ingress-controller)
 #   --dockerhub-pass PASS  Docker Hub password / PAT
 #   --step STEP            Run only a specific step (e.g. --step 1, --step 3a)
@@ -637,19 +638,74 @@ step_3g() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3h — LLM Model Files (optional)
+# Helper — upload a HuggingFace model to JFrog one file at a time
+#   $1 = HuggingFace repo ID  (e.g. meta-llama/Llama-3.1-8B-Instruct)
+#   $2 = JFrog destination folder name under ei-generic-models/
+#   $3 = local working directory
 # ---------------------------------------------------------------------------
-step_3h() {
-  step_hdr "3h - LLM Model Files"
+upload_hf_model() {
+  local hf_repo="$1"
+  local jfrog_folder="$2"
+  local modeldir="$3"
 
-  if [[ -z "$HF_TOKEN" ]]; then
-    warn "Skipping 3h: --hf-token not provided"
-    warn "Re-run with: --step 3h --hf-token hf_..."
-    return 0
-  fi
+  mkdir -p "$modeldir"
+  run pip3 install -q huggingface_hub
 
-  # JFrog defaults to a 100 MB file size limit which blocks safetensors uploads.
-  # Set it to 0 (unlimited) before uploading the model.
+  # Get the list of all files in the model repo without downloading anything
+  info "Fetching file list for $hf_repo..."
+  local file_list
+  file_list=$(python3 - <<PYEOF
+from huggingface_hub import list_repo_files
+for f in list_repo_files("$hf_repo", token="$HF_TOKEN"):
+    print(f)
+PYEOF
+)
+
+  # Download each file one at a time, upload to JFrog, then delete it.
+  # This keeps VM1 disk usage to one file at a time instead of the full model.
+  # Before downloading, check if the file already exists in JFrog and skip it.
+  # This makes reruns safe -- if the script fails halfway, it picks up where it left off.
+  info "Downloading and uploading model files one at a time..."
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    local localfile="$modeldir/$rel"
+    mkdir -p "$(dirname "$localfile")"
+
+    # Check if the file is already in JFrog -- skip if so
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" \
+      -o /dev/null -w "%{http_code}" \
+      "$JFROG_URL/ei-generic-models/$jfrog_folder/$rel")
+    if [[ "$http_code" == "200" ]]; then
+      info "Already in JFrog, skipping: $rel"
+      continue
+    fi
+
+    info "Downloading $rel..."
+    python3 - <<PYEOF
+from huggingface_hub import hf_hub_download
+hf_hub_download(
+    repo_id="$hf_repo",
+    filename="$rel",
+    local_dir="$modeldir",
+    token="$HF_TOKEN"
+)
+PYEOF
+
+    jfrog_upload "$localfile" "ei-generic-models/$jfrog_folder/$rel"
+
+    info "Removing $rel from VM1 to free disk space..."
+    rm -f "$localfile"
+  done <<< "$file_list"
+
+  # Clean up the model directory including any leftover cache files
+  rm -rf "$modeldir"
+}
+
+# ---------------------------------------------------------------------------
+# Helper — patch JFrog file upload size limit to unlimited
+# ---------------------------------------------------------------------------
+set_jfrog_upload_limit_unlimited() {
   info "Setting JFrog file upload limit to unlimited..."
   local cfg_tmp
   cfg_tmp=$(mktemp /tmp/jfrog-config-XXXXXX.xml)
@@ -666,41 +722,61 @@ step_3h() {
     if [[ "$http_code" == "200" ]]; then
       success "File upload limit set to unlimited"
     else
-      warn "Could not update file upload limit (HTTP $http_code) — large files may fail"
+      warn "Could not update file upload limit (HTTP $http_code) -- large files may fail"
     fi
   else
-    warn "fileUploadMaxSizeMb not found in config — skipping limit patch"
+    warn "fileUploadMaxSizeMb not found in config -- skipping limit patch"
   fi
   rm -f "$cfg_tmp"
-
-  local modeldir="$WORKDIR/Llama-3.1-8B-Instruct"
-  mkdir -p "$modeldir"
-
-  info "Downloading meta-llama/Llama-3.1-8B-Instruct from HuggingFace..."
-  run pip3 install -q huggingface_hub
-  run python3 - <<PYEOF
-from huggingface_hub import snapshot_download
-snapshot_download(
-    "meta-llama/Llama-3.1-8B-Instruct",
-    local_dir="$modeldir",
-    token="$HF_TOKEN"
-)
-PYEOF
-
-  info "Uploading model files to JFrog ei-generic-models..."
-  find "$modeldir" -type f | while read -r f; do
-    rel="${f#$modeldir/}"
-    jfrog_upload "$f" "ei-generic-models/Meta-Llama-3.1-8B-Instruct/$rel"
-  done
-
-  success "3h complete"
 }
 
 # ---------------------------------------------------------------------------
-# Step 3i — Kubespray Tarball
+# Step 3i — Meta-Llama-3.1-8B-Instruct (optional)
 # ---------------------------------------------------------------------------
 step_3i() {
-  step_hdr "3i - Kubespray Tarball"
+  step_hdr "3i - LLM Model: Meta-Llama-3.1-8B-Instruct"
+
+  if [[ -z "$HF_TOKEN" ]]; then
+    warn "Skipping 3h: --hf-token not provided"
+    warn "Re-run with: --step 3i --hf-token hf_..."
+    return 0
+  fi
+
+  set_jfrog_upload_limit_unlimited
+  upload_hf_model \
+    "meta-llama/Llama-3.1-8B-Instruct" \
+    "Meta-Llama-3.1-8B-Instruct" \
+    "$WORKDIR/Llama-3.1-8B-Instruct"
+
+  success "3i complete"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3j — Meta-Llama-3.2-3B-Instruct (optional)
+# ---------------------------------------------------------------------------
+step_3j() {
+  step_hdr "3j - LLM Model: Meta-Llama-3.2-3B-Instruct"
+
+  if [[ -z "$HF_TOKEN" ]]; then
+    warn "Skipping 3j: --hf-token not provided"
+    warn "Re-run with: --step 3j --hf-token hf_..."
+    return 0
+  fi
+
+  set_jfrog_upload_limit_unlimited
+  upload_hf_model \
+    "meta-llama/Llama-3.2-3B-Instruct" \
+    "Meta-Llama-3.2-3B-Instruct" \
+    "$WORKDIR/Llama-3.2-3B-Instruct"
+
+  success "3j complete"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3h — Kubespray Tarball
+# ---------------------------------------------------------------------------
+step_3h() {
+  step_hdr "3h - Kubespray Tarball"
   local kubedir="$WORKDIR/kubespray-build"
   mkdir -p "$kubedir"
   cd "$kubedir"
@@ -713,7 +789,7 @@ step_3i() {
   run tar -czf kubespray.tar.gz kubespray/
   jfrog_upload "kubespray.tar.gz" "ei-generic-binaries/kubespray.tar.gz"
 
-  success "3i complete"
+  success "3h complete"
   cd - >/dev/null
 }
 
@@ -781,6 +857,8 @@ should_run "3f" && step_3f
 should_run "3g" && step_3g
 should_run "3h" && step_3h
 should_run "3i" && step_3i
+should_run "3j" && step_3j
+
 should_run "4"  && step_4
 
 echo ""

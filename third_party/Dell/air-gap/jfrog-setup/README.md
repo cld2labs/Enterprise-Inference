@@ -30,6 +30,25 @@ the internet.
 
 ## Prerequisites
 
+### System Requirements
+
+This airgap solution requires two machines. Both machines must be on the same network and
+must be able to reach each other over LAN. VM2 pulls all content from VM1 during deployment,
+so connectivity between them is required throughout the entire process.
+
+| Requirement | VM1 (JFrog machine) | VM2 (airgapped machine) |
+|---|---|---|
+| Purpose | Hosts JFrog Artifactory, downloads and stores all assets | Runs the Enterprise Inference stack (Kubernetes + vLLM) |
+| Internet access | Required (to download Docker images, models, binaries) | Not required (blocked after initial setup) |
+| Disk space | At least 80 GB free. This has been validated for downloading Llama 3.1 8B and Llama 3.2 3B models. If you plan to download additional models, you will need more disk space. | At least 80 GB free (for Kubernetes, container images, and model storage) |
+| RAM | At least 8 GB | At least 64 GB (vLLM requires significant memory for CPU inference) |
+| CPU | No special requirement (JFrog is a file server) | At least 16 cores recommended |
+| Network | Must be reachable from VM2 on port 8082 | Must be reachable from VM1, no internet access after setup |
+| OS | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
+| Access | Root or sudo privileges | Root or sudo privileges |
+
+### Credentials required
+
 Before you start, collect the following. Have all of them ready before running any scripts.
 
 **JFrog Pro Trial License**
@@ -45,11 +64,13 @@ Get a free 14-day trial key at https://jfrog.com/start-free/
 
 **HuggingFace Token**
 
-Required to download the Meta Llama LLM model (about 30 GB). The model is gated, so you
-need to accept the license agreement on HuggingFace before a token will work.
+Required to download the Meta Llama LLM models (Llama 3.1 8B is about 30 GB, Llama 3.2 3B
+is about 7 GB). The models are gated, so you need to accept the license agreement on
+HuggingFace before a token will work.
 
-1. Accept the model license at https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct
-2. Generate a token at https://huggingface.co/settings/tokens and select Read access.
+1. Accept the Llama 3.1 8B license at https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct
+2. Accept the Llama 3.2 3B license at https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct
+3. Generate a token at https://huggingface.co/settings/tokens and select Read access.
 
 **Docker Hub Credentials**
 
@@ -87,8 +108,8 @@ chmod +x jfrog-installation.sh
 sudo ./jfrog-installation.sh
 ```
 
-During the install, the package manager may show a package configuration prompt. Press Enter
-or click OK to accept the defaults and continue.
+> During the install, the package manager may show a package configuration prompt. Press
+> Enter or click OK to accept the defaults and continue.
 
 The script installs these tools: curl, wget, git, jq, skopeo, helm, python3, pip3, ansible.
 
@@ -114,7 +135,10 @@ terminal window (not the one where you are already SSH'd into VM1) and run:
 ssh -L 8082:localhost:8082 user@<VM1-IP> -N
 ```
 
-Leave that terminal open and open `http://localhost:8082` in your local browser.
+> Leave that terminal open. Closing it will drop the tunnel and you will lose access to the
+> JFrog UI.
+
+Open `http://localhost:8082` in your local browser.
 
 ### First login and setup
 
@@ -130,7 +154,9 @@ will need it when running `jfrog-setup.sh` in the next step.
 **2. Activate the license**
 
 JFrog will ask for a license key. Paste the trial license key from your email and click
-Activate. JFrog will not work until this is done.
+Activate.
+
+> JFrog will not serve any content until the license is activated. Do not skip this step.
 
 **3. Set the base URL**
 
@@ -139,7 +165,8 @@ base URL. This is optional and does not affect the setup.
 
 **4. Configure proxy**
 
-Click Skip. A proxy is only needed if VM1 reaches the internet through a corporate proxy server.
+Click Skip. A proxy is only needed if VM1 reaches the internet through a corporate proxy
+server.
 
 **5. Create repositories**
 
@@ -154,11 +181,15 @@ Click Finish to complete the wizard.
 Once the license is active, run `jfrog-setup.sh`. This script does everything in one go:
 creates all repositories, enables anonymous access, and uploads all EI assets to JFrog.
 
-Make sure you have at least 70 GB of free disk space on VM1 before starting. The LLM model
-alone is about 30 GB.
+> Make sure you have at least 80 GB of free disk space on VM1 before starting. The Llama
+> 3.1 8B model alone is about 30 GB.
+
+> Do not run this script with `sudo`. Running as root breaks the SSH tunnel and the script
+> will not be able to reach JFrog.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
+chmod +x jfrog-setup.sh
 
 ./jfrog-setup.sh \
   --jfrog-url http://localhost:8082/artifactory \
@@ -170,7 +201,7 @@ cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
 ```
 
 This will take a while as it downloads and uploads Docker images, Helm charts, Python
-packages, binaries, and the LLM model.
+packages, binaries, and the LLM models.
 
 ### All available options
 
@@ -201,8 +232,9 @@ If you want to run or re-run a specific step instead of the full script:
 ./jfrog-setup.sh --step 3e      # Ansible collections only
 ./jfrog-setup.sh --step 3f      # apt .deb files only
 ./jfrog-setup.sh --step 3g      # Kubernetes binaries only
-./jfrog-setup.sh --step 3h --hf-token hf_xxxxx   # LLM model only
-./jfrog-setup.sh --step 3i      # Kubespray tarball only
+./jfrog-setup.sh --step 3h      # Kubespray tarball only
+./jfrog-setup.sh --step 3i --hf-token hf_xxxxx   # Meta-Llama-3.1-8B-Instruct only
+./jfrog-setup.sh --step 3j --hf-token hf_xxxxx   # Meta-Llama-3.2-3B-Instruct only
 ./jfrog-setup.sh --step 4       # Set remote repos to Offline only
 ```
 
@@ -257,64 +289,27 @@ Downloads all the binaries that Kubespray needs to set up the Kubernetes cluster
 (kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm,
 nerdctl, yq, kubectx, kubens) and uploads them to JFrog.
 
-**Step 3h - LLM model**
-
-Downloads the Meta-Llama-3.1-8B-Instruct model from HuggingFace and uploads all files
-to JFrog. Requires a HuggingFace token. Skip this step if you plan to download the model
-separately.
-
-**Step 3i - Kubespray tarball**
+**Step 3h - Kubespray tarball**
 
 Downloads the Kubespray repository and packages it as a tarball in JFrog. VM2 uses this
 instead of cloning from GitHub since it has no internet access.
+
+**Step 3i - Meta-Llama-3.1-8B-Instruct model**
+
+Downloads the Meta-Llama-3.1-8B-Instruct model (about 30 GB) from HuggingFace and uploads
+all files to JFrog. Requires a HuggingFace token. Skip this step if you plan to download
+the model separately.
+
+**Step 3j - Meta-Llama-3.2-3B-Instruct model**
+
+Downloads the Meta-Llama-3.2-3B-Instruct model (about 7 GB) from HuggingFace and uploads
+all files to JFrog. Requires the same HuggingFace token as step 3i. Skip this step if you
+do not need this model.
 
 **Step 4 - Set remote repos to Offline**
 
 Sets all remote repos to Offline so JFrog only serves cached content and does not try to
 fetch anything new from the internet. This is the final step that enforces the true airgap.
-
----
-
-## Step 4 - Set Remote Repos to Offline
-
-This step runs automatically at the end of `jfrog-setup.sh`. When a repo is set to
-Offline, JFrog serves only what is already cached and refuses any new internet fetches.
-
-If you need to run this step on its own:
-
-```bash
-./jfrog-setup.sh \
-  --jfrog-url http://localhost:8082/artifactory \
-  --jfrog-user admin \
-  --jfrog-pass <your-password> \
-  --step 4
-```
-
-Repos set to Offline:
-
-- ei-docker-dockerhub
-- ei-docker-ecr
-- ei-docker-ghcr
-- ei-docker-k8s
-- ei-docker-quay
-- ei-pypi-remote
-- ei-debian-ubuntu
-
----
-
-## Verify What Is in JFrog
-
-To see everything currently stored in JFrog across all repos:
-
-```bash
-python3 list-jfrog-assets.py
-
-# With custom URL or credentials
-python3 list-jfrog-assets.py \
-  --jfrog-url http://localhost:8082/artifactory \
-  --jfrog-user admin \
-  --jfrog-pass <password>
-```
 
 ---
 
@@ -345,9 +340,9 @@ skopeo copy \
   docker://<VM1-IP>:8082/ei-docker-local/<image>:<tag>
 ```
 
-Always push to `ei-docker-local`, not `ei-docker-virtual`. Virtual repos reject pushes.
-Images pushed to `ei-docker-local` are automatically served through `ei-docker-virtual`
-since local is a member of virtual.
+> Always push to `ei-docker-local`, not `ei-docker-virtual`. Virtual repos reject pushes.
+> Images pushed to `ei-docker-local` are automatically served through `ei-docker-virtual`
+> since local is a member of virtual.
 
 ### Verifying an image is cached
 
@@ -396,7 +391,8 @@ curl -su "admin:<password>" -X POST \
   --data-binary @/tmp/jfrog-config.xml
 ```
 
-This is handled automatically by step 2 of `jfrog-setup.sh`.
+> This is handled automatically by step 2 of `jfrog-setup.sh`. Only run this manually if
+> VM2 is unable to pull images without credentials after the full setup.
 
 ### Virtual repos cannot be added to permission targets
 
@@ -418,4 +414,5 @@ curl -u admin:<password> -T index.yaml \
   "http://localhost:8082/artifactory/ei-helm-local/index.yaml"
 ```
 
-Step 3b of `jfrog-setup.sh` does this automatically.
+> Step 3b of `jfrog-setup.sh` does this automatically. Only run this manually if you are
+> uploading charts outside of the script.
