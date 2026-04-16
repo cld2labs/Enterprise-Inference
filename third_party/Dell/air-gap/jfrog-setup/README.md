@@ -81,8 +81,11 @@ Default login: admin / password. You will be prompted to change the password on 
 ### Activate the license
 
 1. Log in to the JFrog UI
-2. Go to Admin -> Artifactory License
-3. Paste the trial license key and click Save
+2. Click the gear icon (Administration) in the left sidebar
+3. Go to General -> Licenses
+4. Paste the trial license key and click Save
+
+The direct URL is: `http://localhost:8082/ui/admin/configuration/general/licenses`
 
 JFrog will not cache or serve any content until this is done.
 
@@ -93,7 +96,9 @@ JFrog will not cache or serve any content until this is done.
 Once the license is active, run `jfrog-setup-all.sh`. This script does everything in one go:
 creates all repositories, enables anonymous access, and uploads all EI assets to JFrog.
 
-### Basic run (no LLM model)
+Before running, get a HuggingFace token with access to the Meta Llama model at
+https://huggingface.co/settings/tokens. The script needs this to download the LLM model
+(~30 GB). Make sure you have enough disk space on VM1 before starting.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
@@ -103,25 +108,12 @@ cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
   --jfrog-user admin \
   --jfrog-pass <your-password> \
   --dockerhub-user <dockerhub-username> \
-  --dockerhub-pass <dockerhub-pat>
-```
-
-Docker Hub credentials are required to pull `apache/apisix-ingress-controller`. If you skip
-them, that image will be skipped and you can push it manually later.
-
-### With LLM model (optional, needs ~30 GB disk)
-
-```bash
-./jfrog-setup-all.sh \
-  --jfrog-url http://localhost:8082/artifactory \
-  --jfrog-user admin \
-  --jfrog-pass <your-password> \
-  --dockerhub-user <dockerhub-username> \
   --dockerhub-pass <dockerhub-pat> \
   --hf-token hf_xxxxx
 ```
 
-You need a HuggingFace token with access to the Meta Llama model. Get one at https://huggingface.co/settings/tokens.
+Docker Hub credentials are required to pull `apache/apisix-ingress-controller`. If you skip
+them, that image will be skipped and you can push it manually later.
 
 ### All available options
 
