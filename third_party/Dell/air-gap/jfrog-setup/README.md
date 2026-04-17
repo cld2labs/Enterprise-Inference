@@ -19,12 +19,10 @@ the internet.
 └─────────────────────┘
 ```
 
-## Scripts in this folder
+### Scripts in this folder
 
-| Script | Purpose |
-|---|---|
-| `jfrog-installation.sh` | Installs all required tools and JFrog Artifactory on VM1 |
-| `jfrog-setup.sh` | Creates repositories, enables access, and uploads all assets to JFrog |
+- **`jfrog-installation.sh`** — Installs all required tools and JFrog Artifactory on VM1
+- **`jfrog-setup.sh`** — Creates repositories, enables access, and uploads all assets to JFrog
 
 ---
 
@@ -51,10 +49,11 @@ so connectivity between them is required throughout the entire process.
 
 Before you start, collect the following. Have all of them ready before running any scripts.
 
-**JFrog Pro Trial License**
+**JFrog License**
 
 A license key is required to activate JFrog. Without it, JFrog will not serve any content.
-Get a free 14-day trial key at https://jfrog.com/start-free/
+If you already have a JFrog license, use that. If not, you can get a free 14-day trial at
+https://jfrog.com/start-free/
 
 1. Click 14-day free trial (not Platform Tour)
 2. Select Self-Hosted
@@ -171,11 +170,7 @@ Click Finish to complete the wizard.
 
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
 
-Once the license is active, run `jfrog-setup.sh` to finish the JFrog setup. This is the
-main setup script — run it now using the command in the [Run the full setup](#run-the-full-setup)
-section below. It handles everything in one go: creates all repositories, enables anonymous
-access, uploads all EI assets (Docker images, Helm charts, Python packages, binaries, and
-LLM models) to JFrog, and sets all remote repos to Offline at the end to enforce the airgap.
+Once the license is active, run the [command below](#run-the-full-setup) to start the setup.
 
 ### Run the full setup
 
@@ -183,11 +178,13 @@ Run the command below to start. This will take a while as it downloads and uploa
 assets listed above.
 
 > [!CAUTION]
-> Do not run this script with `sudo`. Running as root breaks the SSH tunnel and the script will not be able to reach JFrog.
+> Run the script as a normal user, not with `sudo`. For example, run `./jfrog-setup.sh`,
+> not `sudo ./jfrog-setup.sh`. Running as root breaks the SSH tunnel and the script will
+> not be able to reach JFrog.
 
 > [!NOTE]
-> During step 3f, the script installs apt packages and will prompt for your sudo password.
-> Enter your system password to continue.
+> During step 3f, the script internally installs apt packages and will prompt for your
+> sudo password. This is expected — enter your system password when prompted to continue.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
@@ -204,18 +201,18 @@ chmod +x jfrog-setup.sh
 
 ### All available options
 
-| Flag | Default | Required | Notes |
-|---|---|---|---|
-| `--jfrog-url URL` | `http://localhost:8082/artifactory` | Yes | JFrog base URL. Change if JFrog is on a different host or port |
-| `--jfrog-user USER` | `admin` | Yes | JFrog admin username |
-| `--jfrog-pass PASS` | `password` | Yes | JFrog admin password set during the UI wizard |
-| `--hf-token TOKEN` | | Only for steps 3i, 3j | HuggingFace token with read access to gated Llama models. Omit with `--skip 3i --skip 3j` if models are not needed |
-| `--dockerhub-user USER` | | Only for step 3a | Docker Hub username. Required only for `apache/apisix-ingress-controller`. If omitted, that image is skipped with a warning and all others still upload |
-| `--dockerhub-pass PASS` | | Only for step 3a | Docker Hub password or Personal Access Token |
-| `--step STEP` | | No | Run only one specific step, e.g. `--step 3a`. Useful for re-running a failed step |
-| `--skip STEP` | | No | Skip a specific step. Can be repeated, e.g. `--skip 3i --skip 3j` |
-| `--workdir DIR` | `/tmp/ei-airgap-upload` | No | Directory where files are downloaded before uploading to JFrog |
-| `--dry-run` | | No | Prints all commands without executing them. Useful for verifying what the script will do |
+| Flag | Required | Description |
+|---|---|---|
+| `--jfrog-url URL` | Yes | JFrog base URL. Script fails to connect if not provided or incorrect |
+| `--jfrog-user USER` | Yes | JFrog admin username. Script fails to authenticate if missing |
+| `--jfrog-pass PASS` | Yes | JFrog admin password set during the UI wizard. Script fails to authenticate if missing |
+| `--hf-token TOKEN` | Only for steps 3i, 3j | HuggingFace token with read access to gated Llama models. If omitted without `--skip 3i --skip 3j`, steps 3i and 3j will fail |
+| `--dockerhub-user USER` | Only for step 3a | Docker Hub username for `apache/apisix-ingress-controller`. If omitted, that image is skipped with a warning and all other images still upload |
+| `--dockerhub-pass PASS` | Only for step 3a | Docker Hub password or Personal Access Token. Required alongside `--dockerhub-user` |
+| `--step STEP` | No | Run only one specific step, e.g. `--step 3a`. Useful for re-running a failed step |
+| `--skip STEP` | No | Skip a specific step. Can be repeated, e.g. `--skip 3i --skip 3j` to skip model uploads |
+| `--workdir DIR` | No | Directory where files are downloaded before uploading to JFrog. Defaults to `/tmp/ei-airgap-upload` |
+| `--dry-run` | No | Prints all commands without executing them. Useful for verifying what the script will do before running |
 
 ### Run one step at a time
 
@@ -225,7 +222,7 @@ these commands:
 | Command | What it does |
 |---|---|
 | `./jfrog-setup.sh --step 1` | Creates all JFrog repositories: Docker repos for each upstream registry (Docker Hub, ECR, GHCR, registry.k8s.io, Quay), Helm, PyPI, Debian, and generic repos for binaries and models |
-| `./jfrog-setup.sh --step 2` | Enables anonymous access so VM2 can pull images without credentials. The standard UI toggle does not fully work — this step patches the config directly via the JFrog API |
+| `./jfrog-setup.sh --step 2` | Enables anonymous access so VM2 can pull images without credentials. The standard UI toggle does not fully work; this step patches the config directly via the JFrog API |
 | `./jfrog-setup.sh --step 3a` | Copies ~40 Docker images from upstream registries into JFrog using skopeo. Most images are pulled anonymously. `apache/apisix-ingress-controller:1.8.0` requires `--dockerhub-user` and `--dockerhub-pass` |
 | `./jfrog-setup.sh --step 3b` | Downloads 10 Helm charts (ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons) and uploads them along with an `index.yaml` that JFrog does not generate automatically |
 | `./jfrog-setup.sh --step 3c` | Downloads ~30 Python packages used by the EI deployment playbooks and uploads them to JFrog so VM2 can install them without internet access |
@@ -248,7 +245,7 @@ to serve as the sole package mirror for VM2. The following has been completed:
 - All JFrog repositories created (Docker, Helm, PyPI, Debian, generic)
 - Anonymous access enabled so VM2 can pull images without credentials
 - All Docker images, Helm charts, Python packages, binaries, and LLM models uploaded
-- All remote repos set to Offline — JFrog serves only cached content and will not fetch
+- All remote repos set to Offline: JFrog serves only cached content and will not fetch
   anything new from the internet
 
 VM1 requires no further changes. Proceed to the [Enterprise Inference airgap deployment
