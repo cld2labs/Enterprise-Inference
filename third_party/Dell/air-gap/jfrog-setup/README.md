@@ -188,9 +188,19 @@ LLM models) to JFrog, and sets all remote repos to Offline at the end to enforce
 Run the command below to start. This will take a while as it downloads and uploads all
 assets listed above.
 
-> **Do not use sudo**: Running as root breaks the SSH tunnel and the script will not be able to reach JFrog.
-> **sudo password prompt**: During step 3f, the script installs apt packages using dpkg. and will prompt for your sudo password. Enter your system password to continue.
-> **Skip LLM models**: The `--hf-token` flag is only needed for the model download steps (3i and 3j). If you do not need the models uploaded to JFrog, add `--skip 3i --skip 3j`to the command and omit `--hf-token`.
+> [!CAUTION]
+> Do not run this script with `sudo`. Running as root breaks the SSH tunnel and the
+> script will not be able to reach JFrog.
+
+> [!NOTE]
+> During step 3f, the script installs apt packages and will prompt for your sudo password.
+> Enter your system password to continue.
+
+> [!TIP]
+> The `--hf-token`, `--dockerhub-user`, and `--dockerhub-pass` flags are optional.
+> If you do not need LLM models uploaded, add `--skip 3i --skip 3j` and omit `--hf-token`.
+> If you skip Docker Hub credentials, `apache/apisix-ingress-controller` will be skipped
+> with a warning and the rest of the images will still be uploaded.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
@@ -243,16 +253,6 @@ these commands:
 
 ---
 
-
-
-VM1 is now ready to act as the sole package mirror for VM2. No further changes are needed
-on VM1.
-
-> **Next step**: Follow the Enterprise Inference airgap deployment guide to configure VM2
-> and run the EI deployment stack against JFrog.
-
----
-
 ## Summary
 
 Once `jfrog-setup.sh` completes successfully, JFrog on VM1 is fully configured and ready
@@ -264,8 +264,8 @@ to serve as the sole package mirror for VM2. The following has been completed:
 - All remote repos set to Offline — JFrog serves only cached content and will not fetch
   anything new from the internet
 
-VM1 requires no further changes. Proceed to the Enterprise Inference airgap deployment
-guide to configure VM2 and run the EI stack.
+VM1 requires no further changes. Proceed to the [Enterprise Inference airgap deployment
+guide](../EI/single-node/air-gap.md) to configure VM2 and run the EI stack.
 
 ---
 
