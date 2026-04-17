@@ -644,17 +644,17 @@ step_3g() {
   cd "$bindir"
 
   for bin in kubeadm kubectl kubelet; do
-    run curl -fsSLO "https://dl.k8s.io/release/v1.30.4/bin/linux/amd64/$bin"
-    jfrog_upload "$bin" "ei-generic-binaries/dl.k8s.io/release/v1.30.4/bin/linux/amd64/$bin"
+    run curl -fsSLO "https://dl.k8s.io/release/v1.31.4/bin/linux/amd64/$bin"
+    jfrog_upload "$bin" "ei-generic-binaries/dl.k8s.io/release/v1.31.4/bin/linux/amd64/$bin"
   done
 
   run curl -fsSLO "https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-amd64-v1.4.0.tgz"
   jfrog_upload "cni-plugins-linux-amd64-v1.4.0.tgz" \
     "ei-generic-binaries/github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-amd64-v1.4.0.tgz"
 
-  run curl -fsSLO "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.0/crictl-v1.30.0-linux-amd64.tar.gz"
-  jfrog_upload "crictl-v1.30.0-linux-amd64.tar.gz" \
-    "ei-generic-binaries/github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.0/crictl-v1.30.0-linux-amd64.tar.gz"
+  run curl -fsSLO "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.31.1/crictl-v1.31.1-linux-amd64.tar.gz"
+  jfrog_upload "crictl-v1.31.1-linux-amd64.tar.gz" \
+    "ei-generic-binaries/github.com/kubernetes-sigs/cri-tools/releases/download/v1.31.1/crictl-v1.31.1-linux-amd64.tar.gz"
 
   run curl -fsSLO "https://github.com/etcd-io/etcd/releases/download/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz"
   jfrog_upload "etcd-v3.5.12-linux-amd64.tar.gz" \
@@ -668,17 +668,17 @@ step_3g() {
   jfrog_upload "calico-v3.28.1.tar.gz" \
     "ei-generic-binaries/github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
 
-  run curl -fsSLO "https://github.com/containerd/containerd/releases/download/v1.7.21/containerd-1.7.21-linux-amd64.tar.gz"
+  run curl -fsSLO "https://github.com/containerd/containerd/releases/download/v1.7.24/containerd-1.7.24-linux-amd64.tar.gz"
   jfrog_upload "containerd-1.7.21-linux-amd64.tar.gz" \
-    "ei-generic-binaries/github.com/containerd/containerd/releases/download/v1.7.21/containerd-1.7.21-linux-amd64.tar.gz"
+    "ei-generic-binaries/github.com/containerd/containerd/releases/download/v1.7.24/containerd-1.7.24-linux-amd64.tar.gz"
 
-  run curl -fsSLO "https://github.com/containerd/nerdctl/releases/download/v1.7.6/nerdctl-1.7.6-linux-amd64.tar.gz"
+  run curl -fsSLO "https://github.com/containerd/nerdctl/releases/download/v1.7.7/nerdctl-1.7.7-linux-amd64.tar.gz"
   jfrog_upload "nerdctl-1.7.6-linux-amd64.tar.gz" \
-    "ei-generic-binaries/github.com/containerd/nerdctl/releases/download/v1.7.6/nerdctl-1.7.6-linux-amd64.tar.gz"
+    "ei-generic-binaries/github.com/containerd/nerdctl/releases/download/v1.7.7/nerdctl-1.7.7-linux-amd64.tar.gz"
 
-  run curl -fsSLO "https://github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64"
+  run curl -fsSLO "https://github.com/opencontainers/runc/releases/download/v1.2.3/runc.amd64"
   jfrog_upload "runc.amd64" \
-    "ei-generic-binaries/github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64"
+    "ei-generic-binaries/github.com/opencontainers/runc/releases/download/v1.2.3/runc.amd64"
 
   run curl -fsSLO "https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz"
   jfrog_upload "helm-v3.15.4-linux-amd64.tar.gz" \
