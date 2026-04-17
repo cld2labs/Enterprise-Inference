@@ -115,12 +115,6 @@ The script installs these tools: curl, wget, git, jq, skopeo, helm, python3, pip
 
 When the script finishes, JFrog is running at `http://localhost:8082`.
 
-Available options if needed:
-
-```
---jfrog-port PORT   JFrog HTTP port (default: 8082)
-```
-
 ---
 
 ## Step 2 - Open the JFrog UI and Complete Setup
@@ -195,11 +189,6 @@ assets listed above.
 > During step 3f, the script installs apt packages and will prompt for your sudo password.
 > Enter your system password to continue.
 
-- > The `--hf-token`, `--dockerhub-user`, and `--dockerhub-pass` flags are optional.
-- > If you do not need LLM models uploaded, add `--skip 3i --skip 3j` and omit `--hf-token`.
-- > If you skip Docker Hub credentials, `apache/apisix-ingress-controller` will be skipped
-- > with a warning and the rest of the images will still be uploaded.
-
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
 chmod +x jfrog-setup.sh
@@ -215,18 +204,18 @@ chmod +x jfrog-setup.sh
 
 ### All available options
 
-| Flag | Description |
-|---|---|
-| `--jfrog-url URL` | JFrog base URL |
-| `--jfrog-user USER` | JFrog username |
-| `--jfrog-pass PASS` | JFrog password |
-| `--hf-token TOKEN` | HuggingFace token (required for LLM model download) |
-| `--dockerhub-user USER` | Docker Hub username (required for apisix-ingress-controller) |
-| `--dockerhub-pass PASS` | Docker Hub password or PAT |
-| `--step STEP` | Run only one specific step, e.g. `--step 3a` |
-| `--skip STEP` | Skip a specific step (can be repeated) |
-| `--workdir DIR` | Where to download files |
-| `--dry-run` | Print commands without running them |
+| Flag | Default | Required | Notes |
+|---|---|---|---|
+| `--jfrog-url URL` | `http://localhost:8082/artifactory` | Yes | JFrog base URL. Change if JFrog is on a different host or port |
+| `--jfrog-user USER` | `admin` | Yes | JFrog admin username |
+| `--jfrog-pass PASS` | `password` | Yes | JFrog admin password set during the UI wizard |
+| `--hf-token TOKEN` | | Only for steps 3i, 3j | HuggingFace token with read access to gated Llama models. Omit with `--skip 3i --skip 3j` if models are not needed |
+| `--dockerhub-user USER` | | Only for step 3a | Docker Hub username. Required only for `apache/apisix-ingress-controller`. If omitted, that image is skipped with a warning and all others still upload |
+| `--dockerhub-pass PASS` | | Only for step 3a | Docker Hub password or Personal Access Token |
+| `--step STEP` | | No | Run only one specific step, e.g. `--step 3a`. Useful for re-running a failed step |
+| `--skip STEP` | | No | Skip a specific step. Can be repeated, e.g. `--skip 3i --skip 3j` |
+| `--workdir DIR` | `/tmp/ei-airgap-upload` | No | Directory where files are downloaded before uploading to JFrog |
+| `--dry-run` | | No | Prints all commands without executing them. Useful for verifying what the script will do |
 
 ### Run one step at a time
 
