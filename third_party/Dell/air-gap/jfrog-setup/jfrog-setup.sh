@@ -656,24 +656,24 @@ step_3g() {
   jfrog_upload "crictl-v1.31.1-linux-amd64.tar.gz" \
     "ei-generic-binaries/github.com/kubernetes-sigs/cri-tools/releases/download/v1.31.1/crictl-v1.31.1-linux-amd64.tar.gz"
 
-  run curl -fsSLO "https://github.com/etcd-io/etcd/releases/download/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz"
-  jfrog_upload "etcd-v3.5.12-linux-amd64.tar.gz" \
-    "ei-generic-binaries/github.com/etcd-io/etcd/releases/download/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz"
+  run curl -fsSLO "https://github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz"
+  jfrog_upload "etcd-v3.5.16-linux-amd64.tar.gz" \
+    "ei-generic-binaries/github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz"
 
-  run curl -fsSLO "https://github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64"
+  run curl -fsSLO "https://github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"
   jfrog_upload "calicoctl-linux-amd64" \
-    "ei-generic-binaries/github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64"
+    "ei-generic-binaries/github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"
 
-  run curl -fsSL -o "calico-v3.28.1.tar.gz" "https://github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
-  jfrog_upload "calico-v3.28.1.tar.gz" \
-    "ei-generic-binaries/github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
+  run curl -fsSL -o "calico-v3.29.1.tar.gz" "https://github.com/projectcalico/calico/archive/v3.29.1.tar.gz"
+  jfrog_upload "calico-v3.29.1.tar.gz" \
+    "ei-generic-binaries/github.com/projectcalico/calico/archive/v3.29.1.tar.gz"
 
   run curl -fsSLO "https://github.com/containerd/containerd/releases/download/v1.7.24/containerd-1.7.24-linux-amd64.tar.gz"
-  jfrog_upload "containerd-1.7.21-linux-amd64.tar.gz" \
+  jfrog_upload "containerd-1.7.24-linux-amd64.tar.gz" \
     "ei-generic-binaries/github.com/containerd/containerd/releases/download/v1.7.24/containerd-1.7.24-linux-amd64.tar.gz"
 
   run curl -fsSLO "https://github.com/containerd/nerdctl/releases/download/v1.7.7/nerdctl-1.7.7-linux-amd64.tar.gz"
-  jfrog_upload "nerdctl-1.7.6-linux-amd64.tar.gz" \
+  jfrog_upload "nerdctl-1.7.7-linux-amd64.tar.gz" \
     "ei-generic-binaries/github.com/containerd/nerdctl/releases/download/v1.7.7/nerdctl-1.7.7-linux-amd64.tar.gz"
 
   run curl -fsSLO "https://github.com/opencontainers/runc/releases/download/v1.2.3/runc.amd64"
