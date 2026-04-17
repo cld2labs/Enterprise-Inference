@@ -59,8 +59,8 @@ Get a free 14-day trial key at https://jfrog.com/start-free/
 1. Click 14-day free trial (not Platform Tour)
 2. Select Self-Hosted
 3. Fill in the registration form and click Confirm and Start
-4. Check your email. The license key arrives within a few minutes.
-5. Copy the key and keep it somewhere handy.
+4. Check your email. JFrog will send you your username, password, and license key within a few minutes.
+5. Copy the license key and keep it somewhere handy. You will need all three when completing the setup wizard in Step 2.
 
 **HuggingFace Token**
 
