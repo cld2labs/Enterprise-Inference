@@ -225,18 +225,18 @@ chmod +x jfrog-setup.sh
 
 ### All available options
 
-| Flag | Description | Default |
-|---|---|---|
-| `--jfrog-url URL` | JFrog base URL | `http://localhost:8082/artifactory` |
-| `--jfrog-user USER` | JFrog username | `admin` |
-| `--jfrog-pass PASS` | JFrog password | `password` |
-| `--hf-token TOKEN` | HuggingFace token (required for LLM model download) | |
-| `--dockerhub-user USER` | Docker Hub username (required for apisix-ingress-controller) | |
-| `--dockerhub-pass PASS` | Docker Hub password or PAT | |
-| `--step STEP` | Run only one specific step, e.g. `--step 3a` | |
-| `--skip STEP` | Skip a specific step (can be repeated) | |
-| `--workdir DIR` | Where to download files | `/tmp/ei-airgap-upload` |
-| `--dry-run` | Print commands without running them | |
+| Flag | Description |
+|---|---|
+| `--jfrog-url URL` | JFrog base URL |
+| `--jfrog-user USER` | JFrog username |
+| `--jfrog-pass PASS` | JFrog password |
+| `--hf-token TOKEN` | HuggingFace token (required for LLM model download) |
+| `--dockerhub-user USER` | Docker Hub username (required for apisix-ingress-controller) |
+| `--dockerhub-pass PASS` | Docker Hub password or PAT |
+| `--step STEP` | Run only one specific step, e.g. `--step 3a` |
+| `--skip STEP` | Skip a specific step (can be repeated) |
+| `--workdir DIR` | Where to download files |
+| `--dry-run` | Print commands without running them |
 
 ---
 
@@ -260,6 +260,26 @@ these commands:
 | `./jfrog-setup.sh --step 3i --hf-token <hf-token>` | Download and upload **Meta-Llama-3.1-8B-Instruct** (~30 GB) |
 | `./jfrog-setup.sh --step 3j --hf-token <hf-token>` | Download and upload **Meta-Llama-3.2-3B-Instruct** (~7 GB) |
 | `./jfrog-setup.sh --step 4` | Set all remote repos to Offline |
+
+---
+
+### What happens when the script finishes
+
+Once `jfrog-setup.sh` completes successfully:
+
+- All JFrog repositories are created and populated
+- Anonymous access is enabled so VM2 can pull without credentials
+- All Docker images, Helm charts, Python packages, and binaries are cached in JFrog
+- All remote repos are set to Offline, meaning JFrog will only serve cached content and
+  will not attempt to fetch anything from the internet
+
+VM1 is now ready to act as the sole package mirror for VM2. No further changes are needed
+on VM1.
+
+> **Next step**: Follow the Enterprise Inference airgap deployment guide to configure VM2
+> and run the EI deployment stack against JFrog.
+
+---
 
 <details>
 <summary>What each step does (click to expand)</summary>
