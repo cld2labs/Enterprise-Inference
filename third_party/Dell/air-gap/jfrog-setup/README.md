@@ -243,19 +243,6 @@ these commands:
 
 ---
 
-### What the script uploads
-
-| Asset type | What gets uploaded |
-|---|---|
-| Docker images | ~40 images from Docker Hub, ECR, GHCR, registry.k8s.io, Quay |
-| Helm charts | 10 charts: ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons |
-| Python packages | ~30 PyPI packages used by the EI deployment playbooks |
-| pip bootstrap | pip wheel (needed because Ubuntu disables pip by default) |
-| Ansible collections | 4 collections used by the EI playbooks |
-| apt packages | jq and its dependencies as .deb files |
-| Kubernetes binaries | kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm, nerdctl, yq, kubectx, kubens |
-| Kubespray | Full Kubespray repo as a tarball (replaces git clone on VM2) |
-| LLM models | Meta-Llama-3.1-8B-Instruct (~30 GB) and Meta-Llama-3.2-3B-Instruct (~7 GB) |
 
 
 VM1 is now ready to act as the sole package mirror for VM2. No further changes are needed
@@ -265,6 +252,20 @@ on VM1.
 > and run the EI deployment stack against JFrog.
 
 ---
+
+## Summary
+
+Once `jfrog-setup.sh` completes successfully, JFrog on VM1 is fully configured and ready
+to serve as the sole package mirror for VM2. The following has been completed:
+
+- All JFrog repositories created (Docker, Helm, PyPI, Debian, generic)
+- Anonymous access enabled so VM2 can pull images without credentials
+- All Docker images, Helm charts, Python packages, binaries, and LLM models uploaded
+- All remote repos set to Offline — JFrog serves only cached content and will not fetch
+  anything new from the internet
+
+VM1 requires no further changes. Proceed to the Enterprise Inference airgap deployment
+guide to configure VM2 and run the EI stack.
 
 ---
 
