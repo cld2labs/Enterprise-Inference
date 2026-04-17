@@ -136,7 +136,7 @@ find ~/Enterprise-Inference -name "*.sh" -o -name "*.yml" -o -name "*.yaml" -o -
 vi ~/Enterprise-Inference/core/inventory/inference-config.cfg
 ```
 
-Set the following values:
+Set the following values. Replace each placeholder with your actual values:
 
 ```
 cluster_url=api.example.com
@@ -145,8 +145,8 @@ key_file=~/certs/key.pem
 keycloak_client_id=my-client-id
 keycloak_admin_user=your-keycloak-admin-user
 keycloak_admin_password=changeme
-hugging_face_token=hf_your_token_here
-hugging_face_token_falcon3=your_hugging_face_token
+hugging_face_token=<your-huggingface-token>     # Replace with your HuggingFace token
+hugging_face_token_falcon3=<your-huggingface-token>   # Replace with your HuggingFace token
 models=
 cpu_or_gpu=cpu
 vault_pass_code=place-holder-123
@@ -171,7 +171,13 @@ jfrog_username=admin
 jfrog_password=<your-jfrog-password>
 ```
 
-Replace `<VM1-IP>` with the actual IP of VM1.
+Replace the following placeholders with your own values before running the deployment:
+
+| Placeholder | What to replace with |
+|---|---|
+| `<VM1-IP>` | IP address of VM1 (the JFrog machine) |
+| `<your-jfrog-password>` | JFrog admin password set during the UI wizard in Step 2 |
+| `<your-huggingface-token>` | Your HuggingFace token with read access to the gated Llama models |
 
 ### Apply single-node inventory
 
@@ -212,8 +218,9 @@ echo "$(hostname -I | awk '{print $1}') api.example.com" | sudo tee -a /etc/host
 ## Step 4 - Run the Deployment
 
 ```bash
-cd ~/Enterprise-Inference
-bash inference-stack-deploy.sh
+cd ~/Enterprise-Inference/core
+chmod +x inference-stack-deploy.sh
+./inference-stack-deploy.sh
 ```
 
 The deployment will:
