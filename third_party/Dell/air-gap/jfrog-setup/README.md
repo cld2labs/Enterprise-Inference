@@ -177,32 +177,20 @@ Click Finish to complete the wizard.
 
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
 
-Once the license is active, run `jfrog-setup.sh` to finish the setup. This script handles
-everything in one go: it creates all repositories, enables anonymous access, uploads all
-EI assets (Docker images, Helm charts, Python packages, binaries, and LLM models) to JFrog,
-and sets all remote repos to Offline at the end to enforce the airgap.
-
-> **Do not use sudo**: Running as root breaks the SSH tunnel and the script will not be
-> able to reach JFrog.
-
-### What the script uploads
-
-| Asset type | What gets uploaded |
-|---|---|
-| Docker images | ~40 images from Docker Hub, ECR, GHCR, registry.k8s.io, Quay |
-| Helm charts | 10 charts: ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons |
-| Python packages | ~30 PyPI packages used by the EI deployment playbooks |
-| pip bootstrap | pip wheel (needed because Ubuntu disables pip by default) |
-| Ansible collections | 4 collections used by the EI playbooks |
-| apt packages | jq and its dependencies as .deb files |
-| Kubernetes binaries | kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm, nerdctl, yq, kubectx, kubens |
-| Kubespray | Full Kubespray repo as a tarball (replaces git clone on VM2) |
-| LLM models | Meta-Llama-3.1-8B-Instruct (~30 GB) and Meta-Llama-3.2-3B-Instruct (~7 GB) |
+Once the license is active, run `jfrog-setup.sh` to finish the JFrog setup. This is the
+main setup script — run it now using the command in the [Run the full setup](#run-the-full-setup)
+section below. It handles everything in one go: creates all repositories, enables anonymous
+access, uploads all EI assets (Docker images, Helm charts, Python packages, binaries, and
+LLM models) to JFrog, and sets all remote repos to Offline at the end to enforce the airgap.
 
 ### Run the full setup
 
 Run the command below to start. This will take a while as it downloads and uploads all
 assets listed above.
+
+> **Do not use sudo**: Running as root breaks the SSH tunnel and the script will not be able to reach JFrog.
+> **sudo password prompt**: During step 3f, the script installs apt packages using dpkg. and will prompt for your sudo password. Enter your system password to continue.
+> **Skip LLM models**: The `--hf-token` flag is only needed for the model download steps (3i and 3j). If you do not need the models uploaded to JFrog, add `--skip 3i --skip 3j`to the command and omit `--hf-token`.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
@@ -216,12 +204,6 @@ chmod +x jfrog-setup.sh
   --dockerhub-pass <dockerhub-pat> \
   --hf-token <hf-token>
 ```
-
-> **Skip LLM models**: The `--hf-token` flag is only needed for the model download steps
-> (3i and 3j). If you do not need the models uploaded to JFrog, add `--skip 3i --skip 3j`
-> to the command and omit `--hf-token`.
-
----
 
 ### All available options
 
@@ -237,8 +219,6 @@ chmod +x jfrog-setup.sh
 | `--skip STEP` | Skip a specific step (can be repeated) |
 | `--workdir DIR` | Where to download files |
 | `--dry-run` | Print commands without running them |
-
----
 
 ### Run one step at a time
 
@@ -263,15 +243,20 @@ these commands:
 
 ---
 
-### What happens when the script finishes
+### What the script uploads
 
-Once `jfrog-setup.sh` completes successfully:
+| Asset type | What gets uploaded |
+|---|---|
+| Docker images | ~40 images from Docker Hub, ECR, GHCR, registry.k8s.io, Quay |
+| Helm charts | 10 charts: ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons |
+| Python packages | ~30 PyPI packages used by the EI deployment playbooks |
+| pip bootstrap | pip wheel (needed because Ubuntu disables pip by default) |
+| Ansible collections | 4 collections used by the EI playbooks |
+| apt packages | jq and its dependencies as .deb files |
+| Kubernetes binaries | kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm, nerdctl, yq, kubectx, kubens |
+| Kubespray | Full Kubespray repo as a tarball (replaces git clone on VM2) |
+| LLM models | Meta-Llama-3.1-8B-Instruct (~30 GB) and Meta-Llama-3.2-3B-Instruct (~7 GB) |
 
-- All JFrog repositories are created and populated
-- Anonymous access is enabled so VM2 can pull without credentials
-- All Docker images, Helm charts, Python packages, and binaries are cached in JFrog
-- All remote repos are set to Offline, meaning JFrog will only serve cached content and
-  will not attempt to fetch anything from the internet
 
 VM1 is now ready to act as the sole package mirror for VM2. No further changes are needed
 on VM1.

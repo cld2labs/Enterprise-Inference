@@ -21,27 +21,7 @@ VM1 (internet-connected)          VM2 (airgapped)
 
 ---
 
-## Step 1 - Set JFrog Remote Repos to Offline
-
-Once all assets are uploaded, set every remote repo to Offline in the JFrog UI. When a repo is Offline, JFrog serves only what is already cached and refuses to fetch anything new from the internet. This is what enforces the true airgap.
-
-In the JFrog UI: Administration -> Repositories -> Edit each remote repo -> Advanced tab -> uncheck Online -> Save
-
-Set these repos to Offline:
-
-- `ei-docker-dockerhub`
-- `ei-docker-ecr`
-- `ei-docker-ghcr`
-- `ei-docker-k8s`
-- `ei-docker-quay`
-- `ei-pypi-remote`
-- `ei-debian-ubuntu`
-
-Leave `ei-hf-remote` Online unless you have also uploaded the model to `ei-generic-models` and plan to serve it from there.
-
----
-
-## Step 2 - Block Internet on VM2
+## Step 1 - Block Internet on VM2
 
 Before deploying, verify and then block internet access on VM2. All traffic must go through JFrog on VM1.
 
@@ -123,7 +103,7 @@ curl -s --max-time 5 http://<VM1-IP>:8082/artifactory/api/system/ping && echo "O
 
 ---
 
-## Step 3 - Copy the Enterprise Inference Repo to VM2
+## Step 2 - Copy the Enterprise Inference Repo to VM2
 
 From a machine with access to both the repo and VM2, clone the repository and check out the airgap branch:
 
@@ -150,7 +130,7 @@ find ~/Enterprise-Inference -name "*.sh" -o -name "*.yml" -o -name "*.yaml" -o -
 
 ---
 
-## Step 4 - Configure `inference-config.cfg`
+## Step 3 - Configure `inference-config.cfg`
 
 ```bash
 vi ~/Enterprise-Inference/core/inventory/inference-config.cfg
@@ -229,7 +209,7 @@ echo "$(hostname -I | awk '{print $1}') api.example.com" | sudo tee -a /etc/host
 
 ---
 
-## Step 5 - Run the Deployment
+## Step 4 - Run the Deployment
 
 ```bash
 cd ~/Enterprise-Inference
@@ -263,7 +243,7 @@ vllm-llama-8b-cpu-*           1/1 Running
 
 ---
 
-## Step 6 - Test Inference
+## Step 5 - Test Inference
 
 ### Generate Keycloak token
 
