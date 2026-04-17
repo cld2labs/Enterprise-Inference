@@ -95,7 +95,7 @@ sudo apt install -y git
 Clone the repo and check out the airgap branch:
 
 ```bash
-git clone <repo-url> Enterprise-Inference
+git clone https://github.com/cld2labs/Enterprise-Inference.git Enterprise-Inference
 cd Enterprise-Inference
 git checkout ei/airgapped
 ```
@@ -119,7 +119,6 @@ Available options if needed:
 
 ```
 --jfrog-port PORT   JFrog HTTP port (default: 8082)
---skip-jfrog        Install tools only, skip JFrog installation
 ```
 
 ---
@@ -181,9 +180,6 @@ Click Finish to complete the wizard.
 Once the license is active, run `jfrog-setup.sh`. This script does everything in one go —
 creates all repositories, enables anonymous access, uploads all EI assets to JFrog, and
 sets all remote repos to Offline at the end. Run the command below to start.
-
-> **Disk space**: Make sure you have at least 80 GB of free disk space on VM1 before
-> starting. The Llama 3.1 8B model alone is about 30 GB.
 
 > **Do not use sudo**: Running as root breaks the SSH tunnel and the script will not be
 > able to reach JFrog.
