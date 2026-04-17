@@ -21,8 +21,8 @@ the internet.
 
 ### Scripts in this folder
 
-- **`jfrog-installation.sh`** — Installs all required tools and JFrog Artifactory on VM1
-- **`jfrog-setup.sh`** — Creates repositories, enables access, and uploads all assets to JFrog
+- **`jfrog-installation.sh`**: Installs all required tools and JFrog Artifactory on VM1
+- **`jfrog-setup.sh`**: Creates repositories, enables access, and uploads all assets to JFrog
 
 ---
 
@@ -170,12 +170,10 @@ Click Finish to complete the wizard.
 
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
 
-Once the license is active, run the [command below](#run-the-full-setup) to start the setup.
-
 ### Run the full setup
 
-Run the command below to start. This will take a while as it downloads and uploads all
-assets listed above.
+Once the license is active, run the command below to start the setup. This will take a
+while as it downloads and uploads all assets listed above.
 
 > [!CAUTION]
 > Run the script as a normal user, not with `sudo`. For example, run `./jfrog-setup.sh`,
@@ -184,7 +182,7 @@ assets listed above.
 
 > [!NOTE]
 > During step 3f, the script internally installs apt packages and will prompt for your
-> sudo password. This is expected — enter your system password when prompted to continue.
+> sudo password. This is expected: enter your system password when prompted to continue.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
