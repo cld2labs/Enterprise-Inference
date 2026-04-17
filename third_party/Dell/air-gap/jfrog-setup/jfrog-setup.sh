@@ -446,7 +446,7 @@ step_3c() {
     ansible==9.13.0 ansible-core==2.16.18 \
     jinja2 jmespath==1.0.1 jsonschema==4.23.0 jsonschema-specifications \
     netaddr==1.3.0 kubernetes==35.0.0 pyyaml==6.0.3 \
-    cryptography requests oauthlib requests-oauthlib urllib3 \
+    cryptography==44.0.0 cryptography==46.0.7 requests oauthlib requests-oauthlib urllib3 \
     certifi charset-normalizer idna packaging typing-extensions \
     six python-dateutil attrs rpds-py referencing resolvelib \
     durationpy websocket-client cffi pycparser markupsafe \
@@ -537,23 +537,101 @@ step_3e() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3f — apt .deb Files for jq
+# Step 3f — apt .deb Files
+#   Part 1: Download jq .deb files and upload to ei-generic-binaries/apt-debs/
+#           (installed via dpkg on VM2 by the inference-tools role)
+#   Part 2: Pre-cache all Kubespray apt packages in JFrog by routing VM1 apt
+#           through ei-debian-virtual so JFrog fetches and caches each package
+#           and its dependencies before going Offline
 # ---------------------------------------------------------------------------
 step_3f() {
-  step_hdr "3f - apt .deb Files for jq"
+  step_hdr "3f - apt .deb Files"
   local debdir="$WORKDIR/apt-debs"
   mkdir -p "$debdir"
+
+  # ── Part 1: jq via dpkg path ─────────────────────────────────────────────
+  info "Downloading jq, libjq1, libonig5..."
   cd "$debdir"
-
   run sudo apt-get download jq libjq1 libonig5
-
   for deb in *.deb; do
     [[ -f "$deb" ]] || continue
     jfrog_upload "$deb" "ei-generic-binaries/apt-debs/$deb"
   done
-
-  success "3f complete"
   cd - >/dev/null
+
+  # ── Part 2: Kubespray apt packages via JFrog Debian remote ───────────────
+  # Kubespray kubernetes/preinstall requires these packages on VM2.
+  # VM2 apt is pointed at JFrog in airgap mode, so JFrog must have them
+  # cached before going Offline. Route VM1 apt through JFrog here to
+  # trigger fetching and caching of each package and its dependencies.
+  info "Pre-caching Kubespray apt packages in JFrog..."
+
+  local http_code
+  http_code=$(curl -su "$JFROG_CREDS" -X POST \
+    "$JFROG_URL/api/repositories/ei-debian-ubuntu" \
+    -H "Content-Type: application/json" \
+    -d '{"offline":false}' \
+    -o /dev/null -w "%{http_code}")
+  if [[ "$http_code" != "200" ]]; then
+    warn "Could not set ei-debian-ubuntu Online (HTTP $http_code) — skipping Kubespray apt pre-cache"
+    success "3f complete (jq packages only)"
+    return 0
+  fi
+  info "ei-debian-ubuntu set to Online"
+
+  local jfrog_src="http://${JFROG_CREDS}@${JFROG_HOST}/artifactory/ei-debian-virtual"
+  local jfrog_list="/etc/apt/sources.list.d/jfrog-precache.list"
+
+  # Write sources file using two separate tee calls to avoid shell line-wrap issues
+  echo "deb [trusted=yes] $jfrog_src jammy main restricted universe multiverse" \
+    | sudo tee "$jfrog_list" > /dev/null
+  echo "deb [trusted=yes] $jfrog_src jammy-updates main restricted universe multiverse" \
+    | sudo tee -a "$jfrog_list" > /dev/null
+
+  # Disable default Ubuntu sources so apt only talks to JFrog
+  sudo mv /etc/apt/sources.list /etc/apt/sources.list.bak
+
+  local precache_ok=true
+  if run sudo apt-get update; then
+    # Clear any locally cached .deb files so apt must fetch from JFrog
+    # (if the package is already in /var/cache/apt/archives, apt skips the
+    # download entirely and JFrog never sees the request)
+    sudo rm -f /var/cache/apt/archives/unzip*.deb \
+               /var/cache/apt/archives/conntrack*.deb \
+               /var/cache/apt/archives/socat*.deb \
+               /var/cache/apt/archives/ipset*.deb \
+               /var/cache/apt/archives/ebtables*.deb \
+               /var/cache/apt/archives/nfs-common*.deb \
+               /var/cache/apt/archives/apt-transport-https*.deb \
+               /var/cache/apt/archives/ipvsadm*.deb
+
+    run sudo apt-get install --download-only -y \
+      conntrack socat ipset ebtables nfs-common apt-transport-https ipvsadm \
+      || { warn "Some packages may not have been cached"; precache_ok=false; }
+
+    # unzip requires --reinstall because it is typically already installed
+    run sudo apt-get install --download-only --reinstall -y unzip \
+      || { warn "unzip may not have been cached"; precache_ok=false; }
+  else
+    warn "apt-get update through JFrog failed — Kubespray packages may not be cached"
+    precache_ok=false
+  fi
+
+  sudo mv /etc/apt/sources.list.bak /etc/apt/sources.list
+  sudo rm -f "$jfrog_list"
+
+  # Set ei-debian-ubuntu back to Offline
+  curl -su "$JFROG_CREDS" -X POST \
+    "$JFROG_URL/api/repositories/ei-debian-ubuntu" \
+    -H "Content-Type: application/json" \
+    -d '{"offline":true}' > /dev/null 2>&1
+  info "ei-debian-ubuntu set back to Offline"
+
+  if $precache_ok; then
+    success "3f complete — jq debs uploaded, Kubespray apt packages cached in JFrog"
+  else
+    warn "3f finished with warnings — some apt packages may be missing from JFrog cache"
+  fi
 }
 
 # ---------------------------------------------------------------------------
