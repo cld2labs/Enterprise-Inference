@@ -443,7 +443,7 @@ step_3c() {
   mkdir -p "$wheelsdir"
 
   run pip3 download \
-    ansible==9.8.0 ansible-core==2.16.18 \
+    ansible==9.13.0 ansible-core==2.16.18 \
     jinja2 jmespath==1.0.1 jsonschema==4.23.0 jsonschema-specifications \
     netaddr==1.3.0 kubernetes==35.0.0 pyyaml==6.0.3 \
     cryptography requests oauthlib requests-oauthlib urllib3 \
@@ -807,6 +807,9 @@ step_4() {
     ei-docker-quay
     ei-pypi-remote
     ei-debian-ubuntu
+    ei-helm-ingress-nginx
+    ei-helm-langfuse
+    ei-hf-remote
   )
 
   for repo in "${remote_repos[@]}"; do
