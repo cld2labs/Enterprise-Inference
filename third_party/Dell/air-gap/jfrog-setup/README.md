@@ -227,19 +227,19 @@ these commands:
 
 | Command | What it does |
 |---|---|
-| `./jfrog-setup.sh --step 1` | Create all repositories |
-| `./jfrog-setup.sh --step 2` | Enable anonymous access |
-| `./jfrog-setup.sh --step 3a` | Upload Docker images |
-| `./jfrog-setup.sh --step 3b` | Upload Helm charts |
-| `./jfrog-setup.sh --step 3c` | Upload PyPI packages |
-| `./jfrog-setup.sh --step 3d` | Upload pip bootstrap wheel |
-| `./jfrog-setup.sh --step 3e` | Upload Ansible collections |
-| `./jfrog-setup.sh --step 3f` | Upload apt .deb packages |
-| `./jfrog-setup.sh --step 3g` | Upload Kubernetes binaries |
-| `./jfrog-setup.sh --step 3h` | Upload Kubespray tarball |
-| `./jfrog-setup.sh --step 3i --hf-token <hf-token>` | Download and upload **Meta-Llama-3.1-8B-Instruct** (~30 GB) |
-| `./jfrog-setup.sh --step 3j --hf-token <hf-token>` | Download and upload **Meta-Llama-3.2-3B-Instruct** (~7 GB) |
-| `./jfrog-setup.sh --step 4` | Set all remote repos to Offline |
+| `./jfrog-setup.sh --step 1` | Creates all JFrog repositories: Docker repos for each upstream registry (Docker Hub, ECR, GHCR, registry.k8s.io, Quay), Helm, PyPI, Debian, and generic repos for binaries and models |
+| `./jfrog-setup.sh --step 2` | Enables anonymous access so VM2 can pull images without credentials. The standard UI toggle does not fully work — this step patches the config directly via the JFrog API |
+| `./jfrog-setup.sh --step 3a` | Copies ~40 Docker images from upstream registries into JFrog using skopeo. Most images are pulled anonymously. `apache/apisix-ingress-controller:1.8.0` requires `--dockerhub-user` and `--dockerhub-pass` |
+| `./jfrog-setup.sh --step 3b` | Downloads 10 Helm charts (ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons) and uploads them along with an `index.yaml` that JFrog does not generate automatically |
+| `./jfrog-setup.sh --step 3c` | Downloads ~30 Python packages used by the EI deployment playbooks and uploads them to JFrog so VM2 can install them without internet access |
+| `./jfrog-setup.sh --step 3d` | Uploads the pip installer wheel to JFrog. Required because Ubuntu disables pip by default and VM2 needs it to bootstrap the Python environment |
+| `./jfrog-setup.sh --step 3e` | Downloads 4 Ansible collections used by the EI playbooks and uploads them to JFrog |
+| `./jfrog-setup.sh --step 3f` | Downloads jq and its dependencies as .deb files and uploads them to JFrog. These are installed directly on VM2 since apt cannot reach the internet in airgap mode. Prompts for sudo password during install |
+| `./jfrog-setup.sh --step 3g` | Downloads all binaries Kubespray needs to set up the Kubernetes cluster (kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm, nerdctl, yq, kubectx, kubens) and uploads them to JFrog |
+| `./jfrog-setup.sh --step 3h` | Packages the Kubespray repository as a tarball and uploads it to JFrog. VM2 uses this instead of cloning from GitHub |
+| `./jfrog-setup.sh --step 3i --hf-token <hf-token>` | Downloads **Meta-Llama-3.1-8B-Instruct** (~30 GB) from HuggingFace and uploads all files to JFrog. Requires a HuggingFace token with access to the model |
+| `./jfrog-setup.sh --step 3j --hf-token <hf-token>` | Downloads **Meta-Llama-3.2-3B-Instruct** (~7 GB) from HuggingFace and uploads all files to JFrog. Requires the same HuggingFace token as step 3i |
+| `./jfrog-setup.sh --step 4` | Sets all remote repos to Offline so JFrog serves only cached content and does not fetch anything new from the internet. This enforces the true airgap |
 
 ---
 
@@ -265,82 +265,6 @@ on VM1.
 > and run the EI deployment stack against JFrog.
 
 ---
-
-<details>
-<summary>What each step does (click to expand)</summary>
-
-**Step 1 - Create repositories**
-
-Creates all the JFrog repositories needed for EI. This includes Docker repositories for
-each upstream registry (Docker Hub, ECR, GitHub, Kubernetes, Quay), Helm chart repositories,
-a PyPI repository, a Debian package repository, and generic repositories for binaries and
-the LLM model.
-
-**Step 2 - Enable anonymous access**
-
-Configures JFrog so that VM2 can pull Docker images without providing credentials. The
-standard UI toggle for this does not fully work, so this step patches the config directly
-via the JFrog API.
-
-**Step 3a - Docker images**
-
-Copies about 40 Docker images from their upstream registries into JFrog. Uses skopeo for
-the copy because Docker 29.x has a bug that breaks HTTP registries.
-
-**Step 3b - Helm charts**
-
-Downloads 10 Helm charts (ingress-nginx, langfuse, apisix, keycloak, postgresql, redis,
-clickhouse, minio, valkey, nri-resource-policy-balloons) and uploads them to JFrog along
-with an index file that JFrog does not generate automatically.
-
-**Step 3c - PyPI packages**
-
-Downloads about 30 Python packages used by the EI deployment playbooks and uploads them
-to JFrog so VM2 can install them without internet access.
-
-**Step 3d - pip bootstrap wheel**
-
-Ubuntu disables pip by default, so this step uploads the pip installer itself to JFrog.
-The deployment uses it to bootstrap pip on VM2 without needing internet access.
-
-**Step 3e - Ansible collections**
-
-Downloads 4 Ansible collections used by the EI playbooks and uploads them to JFrog.
-
-**Step 3f - apt packages**
-
-Downloads the deb packages for jq and its dependencies and uploads them to JFrog. These
-are installed on VM2 directly since apt cannot reach the internet in airgap mode.
-
-**Step 3g - Kubernetes binaries**
-
-Downloads all the binaries that Kubespray needs to set up the Kubernetes cluster
-(kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm,
-nerdctl, yq, kubectx, kubens) and uploads them to JFrog.
-
-**Step 3h - Kubespray tarball**
-
-Downloads the Kubespray repository and packages it as a tarball in JFrog. VM2 uses this
-instead of cloning from GitHub since it has no internet access.
-
-**Step 3i - Meta-Llama-3.1-8B-Instruct model**
-
-Downloads the Meta-Llama-3.1-8B-Instruct model (about 30 GB) from HuggingFace and uploads
-all files to JFrog. Requires a HuggingFace token. Skip this step if you plan to download
-the model separately.
-
-**Step 3j - Meta-Llama-3.2-3B-Instruct model**
-
-Downloads the Meta-Llama-3.2-3B-Instruct model (about 7 GB) from HuggingFace and uploads
-all files to JFrog. Requires the same HuggingFace token as step 3i. Skip this step if you
-do not need this model.
-
-**Step 4 - Set remote repos to Offline**
-
-Sets all remote repos to Offline so JFrog only serves cached content and does not try to
-fetch anything new from the internet. This is the final step that enforces the true airgap.
-
-</details>
 
 ---
 
