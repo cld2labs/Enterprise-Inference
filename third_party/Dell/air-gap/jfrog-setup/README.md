@@ -177,14 +177,32 @@ Click Finish to complete the wizard.
 
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
 
-Once the license is active, run `jfrog-setup.sh`. This script does everything in one go —
-creates all repositories, enables anonymous access, uploads all EI assets to JFrog, and
-sets all remote repos to Offline at the end. Run the command below to start.
+Once the license is active, run `jfrog-setup.sh` to finish the setup. This script handles
+everything in one go: it creates all repositories, enables anonymous access, uploads all
+EI assets (Docker images, Helm charts, Python packages, binaries, and LLM models) to JFrog,
+and sets all remote repos to Offline at the end to enforce the airgap.
 
 > **Do not use sudo**: Running as root breaks the SSH tunnel and the script will not be
 > able to reach JFrog.
 
+### What the script uploads
+
+| Asset type | What gets uploaded |
+|---|---|
+| Docker images | ~40 images from Docker Hub, ECR, GHCR, registry.k8s.io, Quay |
+| Helm charts | 10 charts: ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons |
+| Python packages | ~30 PyPI packages used by the EI deployment playbooks |
+| pip bootstrap | pip wheel (needed because Ubuntu disables pip by default) |
+| Ansible collections | 4 collections used by the EI playbooks |
+| apt packages | jq and its dependencies as .deb files |
+| Kubernetes binaries | kubeadm, kubectl, kubelet, containerd, runc, etcd, calico, cni-plugins, crictl, helm, nerdctl, yq, kubectx, kubens |
+| Kubespray | Full Kubespray repo as a tarball (replaces git clone on VM2) |
+| LLM models | Meta-Llama-3.1-8B-Instruct (~30 GB) and Meta-Llama-3.2-3B-Instruct (~7 GB) |
+
 ### Run the full setup
+
+Run the command below to start. This will take a while as it downloads and uploads all
+assets listed above.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
@@ -196,15 +214,12 @@ chmod +x jfrog-setup.sh
   --jfrog-pass <your-password> \
   --dockerhub-user <dockerhub-username> \
   --dockerhub-pass <dockerhub-pat> \
-  --hf-token hf_xxxxx
+  --hf-token <hf-token>
 ```
 
-This will take a while — it downloads and uploads Docker images, Helm charts, Python
-packages, binaries, and the LLM models.
-
-> **Skip LLM models**: The `--hf-token` flag is only needed for steps 3i and 3j. If you
-> do not need the models uploaded to JFrog, add `--skip 3i --skip 3j` to the command and
-> omit `--hf-token`.
+> **Skip LLM models**: The `--hf-token` flag is only needed for the model download steps
+> (3i and 3j). If you do not need the models uploaded to JFrog, add `--skip 3i --skip 3j`
+> to the command and omit `--hf-token`.
 
 ---
 
@@ -215,13 +230,13 @@ packages, binaries, and the LLM models.
 | `--jfrog-url URL` | JFrog base URL | `http://localhost:8082/artifactory` |
 | `--jfrog-user USER` | JFrog username | `admin` |
 | `--jfrog-pass PASS` | JFrog password | `password` |
-| `--hf-token TOKEN` | HuggingFace token (required for LLM model download) | — |
-| `--dockerhub-user USER` | Docker Hub username (required for apisix-ingress-controller) | — |
-| `--dockerhub-pass PASS` | Docker Hub password or PAT | — |
-| `--step STEP` | Run only one specific step, e.g. `--step 3a` | — |
-| `--skip STEP` | Skip a specific step (can be repeated) | — |
+| `--hf-token TOKEN` | HuggingFace token (required for LLM model download) | |
+| `--dockerhub-user USER` | Docker Hub username (required for apisix-ingress-controller) | |
+| `--dockerhub-pass PASS` | Docker Hub password or PAT | |
+| `--step STEP` | Run only one specific step, e.g. `--step 3a` | |
+| `--skip STEP` | Skip a specific step (can be repeated) | |
 | `--workdir DIR` | Where to download files | `/tmp/ei-airgap-upload` |
-| `--dry-run` | Print commands without running them | — |
+| `--dry-run` | Print commands without running them | |
 
 ---
 
@@ -232,19 +247,19 @@ these commands:
 
 | Command | What it does |
 |---|---|
-| `./jfrog-setup.sh --step 1` | Create repositories only |
-| `./jfrog-setup.sh --step 2` | Enable anonymous access only |
-| `./jfrog-setup.sh --step 3a` | Docker images only |
-| `./jfrog-setup.sh --step 3b` | Helm charts only |
-| `./jfrog-setup.sh --step 3c` | PyPI packages only |
-| `./jfrog-setup.sh --step 3d` | pip bootstrap wheel only |
-| `./jfrog-setup.sh --step 3e` | Ansible collections only |
-| `./jfrog-setup.sh --step 3f` | apt .deb files only |
-| `./jfrog-setup.sh --step 3g` | Kubernetes binaries only |
-| `./jfrog-setup.sh --step 3h` | Kubespray tarball only |
-| `./jfrog-setup.sh --step 3i --hf-token hf_xxxxx` | Downloads **Meta-Llama-3.1-8B-Instruct** (~30 GB) from HuggingFace and uploads to JFrog |
-| `./jfrog-setup.sh --step 3j --hf-token hf_xxxxx` | Downloads **Meta-Llama-3.2-3B-Instruct** (~7 GB) from HuggingFace and uploads to JFrog |
-| `./jfrog-setup.sh --step 4` | Set remote repos to Offline only |
+| `./jfrog-setup.sh --step 1` | Create all repositories |
+| `./jfrog-setup.sh --step 2` | Enable anonymous access |
+| `./jfrog-setup.sh --step 3a` | Upload Docker images |
+| `./jfrog-setup.sh --step 3b` | Upload Helm charts |
+| `./jfrog-setup.sh --step 3c` | Upload PyPI packages |
+| `./jfrog-setup.sh --step 3d` | Upload pip bootstrap wheel |
+| `./jfrog-setup.sh --step 3e` | Upload Ansible collections |
+| `./jfrog-setup.sh --step 3f` | Upload apt .deb packages |
+| `./jfrog-setup.sh --step 3g` | Upload Kubernetes binaries |
+| `./jfrog-setup.sh --step 3h` | Upload Kubespray tarball |
+| `./jfrog-setup.sh --step 3i --hf-token <hf-token>` | Download and upload **Meta-Llama-3.1-8B-Instruct** (~30 GB) |
+| `./jfrog-setup.sh --step 3j --hf-token <hf-token>` | Download and upload **Meta-Llama-3.2-3B-Instruct** (~7 GB) |
+| `./jfrog-setup.sh --step 4` | Set all remote repos to Offline |
 
 <details>
 <summary>What each step does (click to expand)</summary>
