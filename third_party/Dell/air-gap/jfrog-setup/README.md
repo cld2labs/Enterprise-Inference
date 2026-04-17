@@ -189,18 +189,16 @@ Run the command below to start. This will take a while as it downloads and uploa
 assets listed above.
 
 > [!CAUTION]
-> Do not run this script with `sudo`. Running as root breaks the SSH tunnel and the
-> script will not be able to reach JFrog.
+> Do not run this script with `sudo`. Running as root breaks the SSH tunnel and the script will not be able to reach JFrog.
 
 > [!NOTE]
 > During step 3f, the script installs apt packages and will prompt for your sudo password.
 > Enter your system password to continue.
 
-> [!TIP]
-> The `--hf-token`, `--dockerhub-user`, and `--dockerhub-pass` flags are optional.
-> If you do not need LLM models uploaded, add `--skip 3i --skip 3j` and omit `--hf-token`.
-> If you skip Docker Hub credentials, `apache/apisix-ingress-controller` will be skipped
-> with a warning and the rest of the images will still be uploaded.
+- > The `--hf-token`, `--dockerhub-user`, and `--dockerhub-pass` flags are optional.
+- > If you do not need LLM models uploaded, add `--skip 3i --skip 3j` and omit `--hf-token`.
+- > If you skip Docker Hub credentials, `apache/apisix-ingress-controller` will be skipped
+- > with a warning and the rest of the images will still be uploaded.
 
 ```bash
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
