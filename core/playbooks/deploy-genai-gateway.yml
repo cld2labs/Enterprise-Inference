@@ -121,7 +121,7 @@
 
     - name: Pull genai-gateway subchart dependencies from JFrog ei-helm-virtual (airgap)
       ansible.builtin.command: >
-        helm pull ei-helm/{{ item.name }}
+        helm pull {{ item.name }}
         --version {{ item.version }}
         --repo {{ jfrog_url }}/ei-helm-virtual
         --username {{ jfrog_username }} --password {{ jfrog_password }}
@@ -144,6 +144,7 @@
         helm upgrade --install genai-gateway {{ remote_helm_charts_base }}/genai-gateway
         --namespace genai-gateway
         --create-namespace
+        --set global.security.allowInsecureImages=true
         --set env.LITELLM_MASTER_KEY={{ litellm_master_key }}
         --set env.LITELLM_SALT_KEY={{ litellm_salt_key }}
         --set env.LANGFUSE_SECRET_KEY={{ langfuse_secret_key }}

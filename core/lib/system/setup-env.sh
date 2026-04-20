@@ -198,13 +198,19 @@ except Exception as e:
         # manual IP edits
         local _jfrog_host
         _jfrog_host=$(echo "$jfrog_url" | sed 's|https\?://||' | sed 's|/.*||')
-        sed -i "s|JFROG_HOST:8082|$_jfrog_host|g" \
-            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/all.yml"
-        sed -i "s|JFROG_HOST:8082|$_jfrog_host|g" \
-            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
+        # Replace placeholder (fresh copies) AND any stale real IP (reruns after JFrog IP change)
+        for _f in "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/all.yml" \
+                   "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"; do
+            sed -i "s|JFROG_HOST:8082|$_jfrog_host|g" "$_f"
+            sed -i -E "s|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:8082|$_jfrog_host|g" "$_f"
+        done
         # Inject JFrog credentials into files_repo so Kubespray can authenticate
         # when downloading binaries (anonymous access is not enabled for generic repos)
         sed -i "s|files_repo: \"http://|files_repo: \"http://${jfrog_username}:${jfrog_password}@|g" \
+            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
+        # If credentials were already injected on a prior run the pattern above won't match.
+        # Normalise by replacing the credentialled URL to ensure the current password is used.
+        sed -i "s|files_repo: \"http://[^@]*@[0-9.]*:[0-9]*/artifactory|files_repo: \"http://${jfrog_username}:${jfrog_password}@${_jfrog_host}/artifactory|g" \
             "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
     fi
     # In airgap mode, patch containerd hosts.toml.j2 so every mirror host includes

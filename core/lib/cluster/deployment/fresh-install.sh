@@ -46,6 +46,33 @@ fresh_installation() {
 
             if [[ "$deploy_kubernetes_fresh" == "yes" ]]; then
                 echo "Starting fresh installation of Intel AI for Enterprise Inference Cluster..."
+                if [[ "$airgap_enabled" == "yes" ]]; then
+                    echo "Airgap mode: fixing containerd mirrors and purging any stale image blobs before Kubernetes install..."
+                    local _b64 _jfrog_host
+                    _jfrog_host=$(echo "$jfrog_url" | sed 's|https\?://||' | sed 's|/.*||')
+                    _b64=$(echo -n "${jfrog_username}:${jfrog_password}" | base64 -w 0)
+                    for _reg in docker.io ghcr.io registry.k8s.io quay.io public.ecr.aws; do
+                        sudo mkdir -p /etc/containerd/certs.d/$_reg
+                        sudo tee /etc/containerd/certs.d/$_reg/hosts.toml > /dev/null <<EOF
+server = "https://$_reg"
+[host."http://${_jfrog_host}/v2/ei-docker-virtual"]
+  capabilities = ["pull", "resolve"]
+  override_path = true
+  [host."http://${jfrog_host}/v2/ei-docker-virtual".header]
+    Authorization = ["Basic $_b64"]
+EOF
+                    done
+                    # Purge any HTML blobs cached from failed prior pulls (containerd corruption loop)
+                    for _img in docker.io/library/nginx:1.25.2-alpine; do
+                        sudo crictl rmi "$_img" 2>/dev/null; true
+                        sudo ctr -n k8s.io images rm "$_img" 2>/dev/null; true
+                    done
+                    sudo find /var/lib/containerd/io.containerd.content.v1.content/blobs/sha256 \
+                        -size +100k -newer /etc/containerd/config.toml \
+                        -exec sh -c 'file "$1" | grep -q "HTML" && sudo rm -f "$1"' _ {} \; 2>/dev/null; true
+                    sudo systemctl restart containerd
+                    echo "Containerd mirrors configured and restarted."
+                fi
                 install_kubernetes "$@"
             else
                 echo "Skipping Kubernetes installation..."

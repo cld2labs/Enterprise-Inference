@@ -92,7 +92,7 @@
       run_once: true
       register: helm_output
       when: deploy_keycloak == "yes"
-      community.kubernetes.helm:
+      kubernetes.core.helm:
         name: keycloak
         chart_ref: "{{ 'ei-helm/keycloak' if airgap_enabled | bool else 'oci://registry-1.docker.io/bitnamicharts/keycloak' }}"
         release_namespace: default # Set the namespace where Keycloak will be installed
@@ -442,7 +442,7 @@
         - airgap_enabled | bool
       changed_when: true
     - name: Synchronize dependencies for APISIX
-      community.kubernetes.helm:
+      kubernetes.core.helm:
         name: auth-apisix
         chart_ref: "{{ remote_helm_charts_base }}/apisix-helm/"
         update_repo_cache: yes
