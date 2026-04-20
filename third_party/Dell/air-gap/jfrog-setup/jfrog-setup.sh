@@ -6,13 +6,15 @@
 #
 # One-shot script that sets up JFrog Artifactory for EI airgapped deployment:
 #   Step 1  - Create all required repositories
-#   Step 2  - Enable anonymous access (XML config patch + permissions)
+#   Step 2  - Enable anonymous access (XML config patch + both anonymous-docker-read
+#             and anonymous-user permission targets — both required for token auth)
 #   Step 3a - Docker images (via skopeo)
 #   Step 3b - Helm charts
 #   Step 3c - PyPI packages
 #   Step 3d - pip bootstrap wheel
 #   Step 3e - Ansible collections
-#   Step 3f - apt .deb files for jq
+#   Step 3f - apt .deb files for jq + pre-cache Kubespray/inference-tools apt packages
+#             (conntrack socat ipset ebtables nfs-common ipvsadm unzip python3-pip)
 #   Step 3g - Kubernetes / Kubespray binaries
 #   Step 3h - Kubespray tarball
 #   Step 3i - Meta-Llama-3.1-8B-Instruct model (optional, requires HuggingFace token)
@@ -220,9 +222,25 @@ step_2() {
   curl -su "$JFROG_CREDS" \
     "$JFROG_URL/api/system/configuration" > /tmp/jfrog-config.xml
 
+  local apply_config=false
   if grep -q "<enabledForAnonymous>false</enabledForAnonymous>" /tmp/jfrog-config.xml; then
     sed -i 's|<enabledForAnonymous>false</enabledForAnonymous>|<enabledForAnonymous>true</enabledForAnonymous>|g' \
       /tmp/jfrog-config.xml
+    apply_config=true
+  elif ! grep -q "<enabledForAnonymous>" /tmp/jfrog-config.xml; then
+    # Field is missing entirely — inject it into the <security> block
+    # If no <security> block exists, append one before </config>
+    if grep -q "<security>" /tmp/jfrog-config.xml; then
+      sed -i 's|<security>|<security>\n  <enabledForAnonymous>true</enabledForAnonymous>|' /tmp/jfrog-config.xml
+    else
+      sed -i 's|</config>|<security><enabledForAnonymous>true</enabledForAnonymous></security>\n</config>|' /tmp/jfrog-config.xml
+    fi
+    apply_config=true
+  else
+    success "enabledForAnonymous already true — skipping"
+  fi
+
+  if $apply_config; then
     info "Applying updated configuration..."
     local http_code
     http_code=$(curl -su "$JFROG_CREDS" -X POST \
@@ -235,42 +253,44 @@ step_2() {
     else
       error "Failed to apply config (HTTP $http_code): $(cat /tmp/jfrog-config-resp.txt)"
     fi
-  else
-    success "enabledForAnonymous already true — skipping"
   fi
 
-  # Set anonymous read permissions on all Docker repos
-  # Note: virtual repos cannot be added to permission targets (JFrog returns 400)
-  info "Setting anonymous read permissions on Docker repos..."
-  python3 -c "
-import json
-perm = {
-  'name': 'anonymous-docker-read',
-  'includesPattern': '**',
-  'excludesPattern': '',
-  'repositories': [
-    'ei-docker-local',
-    'ei-docker-dockerhub',
-    'ei-docker-ecr',
-    'ei-docker-ghcr',
-    'ei-docker-k8s',
-    'ei-docker-quay',
-    'ANY REMOTE'
-  ],
-  'principals': {'users': {'anonymous': ['r']}}
-}
-open('/tmp/jfrog-perm.json', 'w').write(json.dumps(perm))
-"
-  local http_code
-  http_code=$(curl -su "$JFROG_CREDS" -X PUT \
-    "$JFROG_URL/api/security/permissions/anonymous-docker-read" \
-    -H "Content-Type: application/json" \
-    -d @/tmp/jfrog-perm.json \
-    -o /tmp/jfrog-perm-resp.txt -w "%{http_code}")
-  if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-    success "Anonymous read permissions set"
+  # Set anonymous read permissions on all Docker repos.
+  # Note: virtual repos cannot be added to permission targets (JFrog returns 400).
+  # We create two permission targets:
+  #   anonymous-docker-read  — named target for Docker image pulls
+  #   anonymous-user         — required for JFrog token service (/v2/token) to
+  #                            return 200 for anonymous Bearer token requests;
+  #                            without this containerd gets 401 on token fetch
+  #                            even when enabledForAnonymous=true
+  local docker_repos='["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay","ANY REMOTE"]'
+  for perm_name in anonymous-docker-read anonymous-user; do
+    info "Setting permission target: $perm_name ..."
+    printf '{"name":"%s","includesPattern":"**","excludesPattern":"","repositories":%s,"principals":{"users":{"anonymous":["r"]}}}' \
+      "$perm_name" "$docker_repos" > /tmp/jfrog-perm.json
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" -X PUT \
+      "$JFROG_URL/api/security/permissions/$perm_name" \
+      -H "Content-Type: application/json" \
+      -d @/tmp/jfrog-perm.json \
+      -o /tmp/jfrog-perm-resp.txt -w "%{http_code}")
+    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+      success "$perm_name permissions set"
+    else
+      warn "$perm_name API returned HTTP $http_code: $(cat /tmp/jfrog-perm-resp.txt)"
+    fi
+  done
+
+  # Verify the token endpoint responds 200 for anonymous requests
+  info "Verifying anonymous token endpoint..."
+  local token_code
+  token_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    "http://${JFROG_HOST}/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=${JFROG_HOST}")
+  if [[ "$token_code" == "200" ]]; then
+    success "Anonymous token endpoint OK (HTTP 200)"
   else
-    warn "Permissions API returned HTTP $http_code: $(cat /tmp/jfrog-perm-resp.txt)"
+    warn "Anonymous token endpoint returned HTTP $token_code — containerd mirror pulls may fail"
+    warn "Ensure enabledForAnonymous=true and anonymous-user permission target is set"
   fi
 
   success "Step 2 complete — anonymous access enabled"
@@ -540,9 +560,11 @@ step_3e() {
 # Step 3f — apt .deb Files
 #   Part 1: Download jq .deb files and upload to ei-generic-binaries/apt-debs/
 #           (installed via dpkg on VM2 by the inference-tools role)
-#   Part 2: Pre-cache all Kubespray apt packages in JFrog by routing VM1 apt
+#   Part 2: Pre-cache all required apt packages in JFrog by routing VM1 apt
 #           through ei-debian-virtual so JFrog fetches and caches each package
-#           and its dependencies before going Offline
+#           and its dependencies before going Offline.
+#           Includes: conntrack socat ipset ebtables nfs-common ipvsadm unzip
+#                     python3-pip (required by inference-tools role on VM2)
 # ---------------------------------------------------------------------------
 step_3f() {
   step_hdr "3f - apt .deb Files"
@@ -607,6 +629,7 @@ step_3f() {
 
     run sudo apt-get install --download-only -y \
       conntrack socat ipset ebtables nfs-common apt-transport-https ipvsadm \
+      python3-pip \
       || { warn "Some packages may not have been cached"; precache_ok=false; }
 
     # unzip requires --reinstall because it is typically already installed
