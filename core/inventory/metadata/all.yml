@@ -147,7 +147,7 @@ containerd_registries_mirrors:
   - registry: "docker.io"
     prefix: "docker.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://JFROG_HOST:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -155,7 +155,7 @@ containerd_registries_mirrors:
   - registry: "ghcr.io"
     prefix: "ghcr.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://JFROG_HOST:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -163,7 +163,7 @@ containerd_registries_mirrors:
   - registry: "registry.k8s.io"
     prefix: "registry.k8s.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://JFROG_HOST:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -171,7 +171,7 @@ containerd_registries_mirrors:
   - registry: "quay.io"
     prefix: "quay.io"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://JFROG_HOST:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve
@@ -179,7 +179,7 @@ containerd_registries_mirrors:
   - registry: "public.ecr.aws"
     prefix: "public.ecr.aws"
     mirrors:
-      - host: "http://100.67.152.212:8082/v2/ei-docker-virtual"
+      - host: "http://JFROG_HOST:8082/v2/ei-docker-virtual"
         capabilities:
           - pull
           - resolve

@@ -193,8 +193,54 @@ except Exception as e:
     cp "$HOMEDIR"/inventory/metadata/all.yml $KUBESPRAYDIR/inventory/mycluster/group_vars/all/all.yml
     if [[ "$airgap_enabled" == "yes" ]] && [ -f "$HOMEDIR/inventory/metadata/offline.yml" ]; then
         cp "$HOMEDIR"/inventory/metadata/offline.yml $KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml
+        # Replace any hardcoded IP:8082 in the copied files with the actual JFrog
+        # host from jfrog_url, so the repo can be reused across environments without
+        # manual IP edits
+        local _jfrog_host
+        _jfrog_host=$(echo "$jfrog_url" | sed 's|https\?://||' | sed 's|/.*||')
+        sed -i "s|JFROG_HOST:8082|$_jfrog_host|g" \
+            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/all.yml"
+        sed -i "s|JFROG_HOST:8082|$_jfrog_host|g" \
+            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
+        # Inject JFrog credentials into files_repo so Kubespray can authenticate
+        # when downloading binaries (anonymous access is not enabled for generic repos)
+        sed -i "s|files_repo: \"http://|files_repo: \"http://${jfrog_username}:${jfrog_password}@|g" \
+            "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
     fi
-    cp -r "$HOMEDIR"/roles/* $KUBESPRAYDIR/roles/        
+    # In airgap mode, patch containerd hosts.toml.j2 so every mirror host includes
+    # Basic auth credentials. containerd's anonymous Bearer token flow fails when
+    # JFrog anonymous access is restricted — injecting credentials directly bypasses it.
+    if [[ "$airgap_enabled" == "yes" ]]; then
+        local _tmpl="$KUBESPRAYDIR/roles/container-engine/containerd/templates/hosts.toml.j2"
+        if [ -f "$_tmpl" ] && ! grep -q "jfrog_username" "$_tmpl"; then
+            echo "Patching containerd hosts.toml.j2 with JFrog auth header (airgap mode)..."
+            cat > /tmp/patch_hosts_toml.py << 'PYEOF'
+import sys
+path = sys.argv[1]
+content = open(path).read()
+auth_block = (
+    "{%- if airgap_enabled | default(false) | bool and jfrog_username is defined and jfrog_username != '' %}\n"
+    "  [host.\"{{ mirror.host }}\".header]\n"
+    "    Authorization = [\"Basic {{ (jfrog_username + ':' + jfrog_password) | b64encode }}\"]\n"
+    "{%- endif %}\n"
+)
+for marker in ('{%- endfor %}', '{% endfor %}'):
+    idx = content.rfind(marker)
+    if idx != -1:
+        content = content[:idx] + auth_block + content[idx:]
+        open(path, 'w').write(content)
+        print(f"Patched {path} with JFrog auth header")
+        break
+else:
+    print(f"WARNING: endfor not found in {path} — skipping patch")
+PYEOF
+            python3 /tmp/patch_hosts_toml.py "$_tmpl"
+        else
+            [ ! -f "$_tmpl" ] && echo -e "${YELLOW}hosts.toml.j2 not found at $_tmpl — skipping auth patch${NC}"
+        fi
+    fi
+
+    cp -r "$HOMEDIR"/roles/* $KUBESPRAYDIR/roles/
 
     mkdir -p "$KUBESPRAYDIR/config"        
     chmod +x $HOMEDIR/scripts/generate-vault-secrets.sh

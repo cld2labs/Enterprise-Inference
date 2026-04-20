@@ -1,4 +1,4 @@
-files_repo: "http://100.67.152.212:8082/artifactory/ei-generic-binaries"
+files_repo: "http://JFROG_HOST:8082/artifactory/ei-generic-binaries"
 kubeadm_download_url: "{{ files_repo }}/dl.k8s.io/release/{{ kube_version }}/bin/linux/{{ image_arch }}/kubeadm"
 kubectl_download_url: "{{ files_repo }}/dl.k8s.io/release/{{ kube_version }}/bin/linux/{{ image_arch }}/kubectl"
 kubelet_download_url: "{{ files_repo }}/dl.k8s.io/release/{{ kube_version }}/bin/linux/{{ image_arch }}/kubelet"

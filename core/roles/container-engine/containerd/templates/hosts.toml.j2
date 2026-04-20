@@ -6,4 +6,8 @@ server = "{{ item.server | default("https://" + item.prefix) }}"
   skip_verify = true
   {% endif %}
   override_path = {{ mirror.override_path | default('false') | string | lower }}
+  {% if airgap_enabled | default(false) | bool and jfrog_username is defined and jfrog_password is defined %}
+  [host."{{ mirror.host }}".header]
+    Authorization = ["Basic {{ (jfrog_username + ':' + jfrog_password) | b64encode }}"]
+  {% endif %}
 {% endfor %}

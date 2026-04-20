@@ -212,5 +212,9 @@ fresh_installation() {
 
 run_fresh_install_playbook() {
     echo "Running the cluster.yml playbook to set up the Kubernetes cluster..."
-    ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root cluster.yml
+    local _airgap_extra_vars=""
+    if [[ "$airgap_enabled" == "yes" ]]; then
+        _airgap_extra_vars="--extra-vars \"airgap_enabled=true jfrog_username=${jfrog_username} jfrog_password=${jfrog_password}\""
+    fi
+    eval ansible-playbook -i "${INVENTORY_PATH}" --become --become-user=root cluster.yml ${_airgap_extra_vars}
 }
