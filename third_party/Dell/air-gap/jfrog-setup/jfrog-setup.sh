@@ -340,6 +340,8 @@ step_3a() {
     "docker.io/openvino/model_server:2025.4|openvino/model_server:2025.4"
     "docker.io/rancher/local-path-provisioner:v0.0.24|rancher/local-path-provisioner:v0.0.24"
     "docker.io/library/busybox:latest|library/busybox:1.28"    # 1.28 manifest no longer in Hub v2 API — copy latest, push as 1.28
+    "docker.io/library/busybox:latest|library/busybox:latest"  # local-path provisioner helper pod uses busybox:latest
+    "docker.io/curlimages/curl:latest|curlimages/curl:latest"  # model registration job
 
     # ── registry.k8s.io ───────────────────────────────────────────────────────
     "registry.k8s.io/ingress-nginx/controller:v1.12.2|ingress-nginx/controller:v1.12.2"
