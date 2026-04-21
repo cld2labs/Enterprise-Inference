@@ -818,6 +818,17 @@ step_3g() {
   jfrog_upload "etcd-v3.5.16-linux-amd64.tar.gz" \
     "ei-generic-binaries/github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz"
 
+  # v3.28.1 — used by kubespray v2.27.0 / k8s v1.30.4
+  run curl -fsSL -o "calicoctl-linux-amd64-v3.28.1" \
+    "https://github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64"
+  jfrog_upload "calicoctl-linux-amd64-v3.28.1" \
+    "ei-generic-binaries/github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64"
+
+  run curl -fsSL -o "calico-v3.28.1.tar.gz" "https://github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
+  jfrog_upload "calico-v3.28.1.tar.gz" \
+    "ei-generic-binaries/github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
+
+  # v3.29.1 — newer version (pre-cache for future use)
   run curl -fsSLO "https://github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"
   jfrog_upload "calicoctl-linux-amd64" \
     "ei-generic-binaries/github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"

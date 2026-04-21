@@ -145,16 +145,39 @@ skopeo copy --src-tls-verify=false --dest-tls-verify=false \
 - `ei-docker-local` must be a member of `ei-docker-virtual` so images are served via the virtual repo
 - Use `--dest-tls-verify=false` for HTTP JFrog
 
-**JFrog anonymous access — how to enable correctly (JFrog 7.x):**
-The UI toggle "Allow Anonymous Access" sets `buildGlobalBasicReadForAnonymous=true` but NOT `enabledForAnonymous`. Must patch the XML config directly:
+**JFrog anonymous access — how to enable correctly (JFrog 7.146+):**
+JFrog 7.38+ stores auth config in the Access microservice DB, not the XML config. `enabledForAnonymous` in the XML is ignored. The Access API requires a Bearer token (not Basic auth) with audience `jfac@...` which is not obtainable via public REST APIs.
+
+**Only reliable method: JFrog UI toggle**
+```
+http://<VM1-IP>:8082/ui → Administration → Security → Settings → Allow Anonymous Access → ON
+```
+
+**How to verify anonymous access is working (two-step Docker V2 auth flow):**
 ```bash
-# Get current config
-curl -su "admin:password" "http://<jfrog>:8082/artifactory/api/system/configuration" > /tmp/jfrog-config.xml
-# Set enabledForAnonymous to true
-sed -i 's/<enabledForAnonymous>false<\/enabledForAnonymous>/<enabledForAnonymous>true<\/enabledForAnonymous>/' /tmp/jfrog-config.xml
-# Repost
-curl -su "admin:password" -X POST "http://<jfrog>:8082/artifactory/api/system/configuration" \
-  -H "Content-Type: application/xml" --data-binary @/tmp/jfrog-config.xml
+# Step 1: get anonymous token (must return 200)
+TOKEN=$(curl -s "http://<jfrog>:8082/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=<jfrog>:8082" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Step 2: use token to fetch manifest (must return 200)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+  "http://<jfrog>:8082/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine"
+```
+Note: bare manifest request (no token) always returns 401 — that is the normal auth challenge, not an error. Containerd follows this two-step flow automatically.
+
+**Permission targets also required** (in addition to UI toggle):
+```bash
+python3 -c "
+import json
+perm={'name':'anonymous-docker','includesPattern':'**','excludesPattern':'','repositories':['ei-docker-local','ei-docker-dockerhub','ei-docker-ecr','ei-docker-ghcr','ei-docker-k8s','ei-docker-quay','ANY REMOTE'],'principals':{'users':{'anonymous':['r']}}}
+open('/tmp/perm.json','w').write(json.dumps(perm))
+"
+curl -su "admin:password" -X PUT \
+  "http://<jfrog>:8082/artifactory/api/security/permissions/anonymous-docker" \
+  -H "Content-Type: application/json" -d @/tmp/perm.json
+# Repeat for name='anonymous-user' with same repos
 ```
 
 **JFrog anonymous permissions — virtual repos not supported:**
