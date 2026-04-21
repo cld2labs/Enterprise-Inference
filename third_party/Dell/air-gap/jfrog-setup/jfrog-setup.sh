@@ -277,33 +277,30 @@ step_2() {
   curl -su "$JFROG_CREDS" \
     "$JFROG_URL/api/system/configuration" > /tmp/jfrog-config.xml
 
-  # Patch both enabledForAnonymous and buildGlobalBasicReadForAnonymous to true.
-  # The UI "Allow Anonymous Access" checkbox only sets buildGlobalBasicReadForAnonymous.
-  # The token service (/v2/token) requires enabledForAnonymous=true to return 200 for
-  # anonymous Bearer token requests. Both must be true for containerd mirror pulls to work.
+  # Patch enabledForAnonymous to true so the Docker registry token service (/v2/token)
+  # returns 200 for anonymous Bearer token requests (required for containerd mirror pulls).
+  # NOTE: do NOT patch buildGlobalBasicReadForAnonymous — that is a build-artifact setting
+  # unrelated to Docker image access; adding it causes a 400 if the global build permission
+  # is disabled in JFrog.
   local apply_config=false
-
-  for xml_field in enabledForAnonymous buildGlobalBasicReadForAnonymous; do
-    if grep -q "<${xml_field}>false</${xml_field}>" /tmp/jfrog-config.xml; then
-      sed -i "s|<${xml_field}>false</${xml_field}>|<${xml_field}>true</${xml_field}>|g" /tmp/jfrog-config.xml
-      apply_config=true
-    elif ! grep -q "<${xml_field}>" /tmp/jfrog-config.xml; then
-      # Field missing — inject into <security> block, or create one
-      if grep -q "<security>" /tmp/jfrog-config.xml; then
-        sed -i "s|<security>|<security>\n  <${xml_field}>true</${xml_field}>|" /tmp/jfrog-config.xml
-      else
-        sed -i "s|</config>|<security><${xml_field}>true</${xml_field}></security>\n</config>|" /tmp/jfrog-config.xml
-      fi
-      apply_config=true
+  if grep -q "<enabledForAnonymous>false</enabledForAnonymous>" /tmp/jfrog-config.xml; then
+    sed -i 's|<enabledForAnonymous>false</enabledForAnonymous>|<enabledForAnonymous>true</enabledForAnonymous>|g' \
+      /tmp/jfrog-config.xml
+    apply_config=true
+  elif ! grep -q "<enabledForAnonymous>" /tmp/jfrog-config.xml; then
+    # Field is missing entirely — inject it into the <security> block
+    if grep -q "<security>" /tmp/jfrog-config.xml; then
+      sed -i 's|<security>|<security>\n  <enabledForAnonymous>true</enabledForAnonymous>|' /tmp/jfrog-config.xml
+    else
+      sed -i 's|</config>|<security><enabledForAnonymous>true</enabledForAnonymous></security>\n</config>|' /tmp/jfrog-config.xml
     fi
-  done
-
-  if ! $apply_config; then
-    success "enabledForAnonymous and buildGlobalBasicReadForAnonymous already true — skipping"
+    apply_config=true
+  else
+    success "enabledForAnonymous already true — skipping"
   fi
 
   if $apply_config; then
-    info "Applying updated configuration (enabledForAnonymous + buildGlobalBasicReadForAnonymous)..."
+    info "Applying updated configuration (enabledForAnonymous=true)..."
     local http_code
     http_code=$(curl -su "$JFROG_CREDS" -X POST \
       "$JFROG_URL/api/system/configuration" \
@@ -311,7 +308,7 @@ step_2() {
       --data-binary @/tmp/jfrog-config.xml \
       -o /tmp/jfrog-config-resp.txt -w "%{http_code}")
     if [[ "$http_code" == "200" ]]; then
-      success "Anonymous access config applied"
+      success "enabledForAnonymous set to true"
     else
       error "Failed to apply config (HTTP $http_code): $(cat /tmp/jfrog-config-resp.txt)"
     fi
@@ -662,9 +659,18 @@ step_3f() {
   mkdir -p "$debdir"
 
   # ── Part 1: jq via dpkg path ─────────────────────────────────────────────
+  # apt-get download fails if the exact installed version is no longer in the
+  # configured apt sources (e.g. sources.list was modified by a previous run
+  # or the version was removed from the mirror). Run apt-get update first,
+  # then download; if it still fails, warn and skip — the debs can be
+  # uploaded manually to ei-generic-binaries/apt-debs/ later.
   info "Downloading jq, libjq1, libonig5..."
   cd "$debdir"
-  run sudo apt-get download jq libjq1 libonig5
+  sudo apt-get update -qq 2>/dev/null || true
+  if ! run sudo apt-get download jq libjq1 libonig5; then
+    warn "apt-get download for jq/libjq1/libonig5 failed — debs not uploaded to JFrog"
+    warn "Upload them manually: sudo apt-get download jq libjq1 libonig5 && curl -u admin:password -T <deb> http://<VM1>:8082/artifactory/ei-generic-binaries/apt-debs/<deb>"
+  fi
   for deb in *.deb; do
     [[ -f "$deb" ]] || continue
     jfrog_upload "$deb" "ei-generic-binaries/apt-debs/$deb"
