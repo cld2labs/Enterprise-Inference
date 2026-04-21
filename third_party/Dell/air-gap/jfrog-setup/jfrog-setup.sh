@@ -293,13 +293,19 @@ step_2() {
     if [[ "$access_http" == "200" || "$access_http" == "201" || "$access_http" == "204" ]]; then
       success "Anonymous access enabled via Access API (HTTP $access_http)"
     else
-      warn "Access API returned HTTP $access_http: $(cat /tmp/jfrog-access-resp.txt)"
-      warn "Enable anonymous access manually in JFrog UI:"
-      warn "  Admin → Security → Settings → Allow Anonymous Access → toggle ON"
+      # JFrog 7.x Access API requires a token with audience jfac@... (not jfrt@...).
+      # member-of-groups:* tokens are scoped to the Artifactory service and are rejected.
+      # The only reliable way to enable this is through the JFrog UI or the jf CLI.
+      warn "Access API returned HTTP $access_http (token audience mismatch — expected jfac@...)"
+      warn "Enable anonymous access manually:"
+      warn "  Browser: http://${JFROG_HOST}/ui → Admin → Security → Settings → Allow Anonymous Access → ON"
+      warn "  OR: jf config add --url http://${JFROG_HOST} --user ${JFROG_USER} --password ${JFROG_PASS} --interactive=false"
+      warn "       jf rt curl -X PATCH /access/api/v1/config -H 'Content-Type: application/json' -d '{\"security\":{\"allow-anonymous-access\":true}}'"
     fi
   else
-    warn "Could not obtain Bearer token — enable anonymous access manually in JFrog UI:"
-    warn "  Admin → Security → Settings → Allow Anonymous Access → toggle ON"
+    warn "Could not obtain Bearer token."
+    warn "Enable anonymous access manually:"
+    warn "  Browser: http://${JFROG_HOST}/ui → Admin → Security → Settings → Allow Anonymous Access → ON"
   fi
 
   # Verify Artifactory API is reachable anonymously (baseline check)
