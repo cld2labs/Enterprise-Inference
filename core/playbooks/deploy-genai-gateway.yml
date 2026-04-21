@@ -119,23 +119,42 @@
       run_once: true
       when: airgap_enabled | bool
 
-    - name: Pull genai-gateway subchart dependencies from JFrog ei-helm-virtual (airgap)
+    - name: Add JFrog Helm repo for genai-gateway dependencies (airgap)
       ansible.builtin.command: >
-        helm pull {{ item.name }}
-        --version {{ item.version }}
-        --repo {{ jfrog_url }}/ei-helm-virtual
+        helm repo add ei-helm-deps {{ jfrog_url }}/ei-helm-virtual
         --username {{ jfrog_username }} --password {{ jfrog_password }}
-        --destination {{ remote_helm_charts_base }}/genai-gateway/charts/
-      loop:
-        - { name: postgresql, version: "16.7.4" }
-        - { name: redis, version: "21.1.3" }
+        --force-update
       run_once: true
       when: airgap_enabled | bool
       changed_when: false
 
-    - name: Build genai-gateway helm dependencies from local charts (airgap)
+    - name: Patch genai-gateway Chart.yaml - replace OCI repo with JFrog HTTP (airgap)
+      ansible.builtin.replace:
+        path: "{{ remote_helm_charts_base }}/genai-gateway/Chart.yaml"
+        regexp: 'repository: oci://registry-1\.docker\.io/bitnamicharts'
+        replace: "repository: {{ jfrog_url }}/ei-helm-virtual"
+      run_once: true
+      when: airgap_enabled | bool
+
+    - name: Patch genai-gateway Chart.yaml - pin postgresql version (airgap)
+      ansible.builtin.replace:
+        path: "{{ remote_helm_charts_base }}/genai-gateway/Chart.yaml"
+        regexp: 'version: ">=13\.3\.0"'
+        replace: 'version: "16.7.4"'
+      run_once: true
+      when: airgap_enabled | bool
+
+    - name: Patch genai-gateway Chart.yaml - pin redis version (airgap)
+      ansible.builtin.replace:
+        path: "{{ remote_helm_charts_base }}/genai-gateway/Chart.yaml"
+        regexp: 'version: ">=18\.0\.0"'
+        replace: 'version: "21.1.3"'
+      run_once: true
+      when: airgap_enabled | bool
+
+    - name: Update genai-gateway helm dependencies (airgap via JFrog)
       ansible.builtin.command: >
-        helm dependency build {{ remote_helm_charts_base }}/genai-gateway
+        helm dependency update {{ remote_helm_charts_base }}/genai-gateway
       register: genai_gateway_deps
       run_once: true
       when: airgap_enabled | bool

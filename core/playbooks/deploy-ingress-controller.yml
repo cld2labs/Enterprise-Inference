@@ -67,11 +67,14 @@
         create_namespace: true
         chart_version: "{{ ingress_controller | default('4.12.2') }}"
         state: present
+        force: true
         values:
           controller:
             progressDeadlineSeconds: 300
             minReadySeconds: 0
             replicaCount: "{{ inference_infra_replica_count | int }}"
+            image:
+              digest: "{{ '' if airgap_enabled | default(false) | bool else omit }}"
             hostPort:
               enabled: true
               ports:
@@ -103,6 +106,10 @@
                         matchLabels:
                           app: ingress-nginx
                       topologyKey: "kubernetes.io/hostname"
+          admissionWebhooks:
+            patch:
+              image:
+                digest: "{{ '' if airgap_enabled | default(false) | bool else omit }}"
       run_once: true
     - name: Pause to Allow Controller to Initialize
       pause:
@@ -111,7 +118,8 @@
       shell: |
         kubectl get pods -n ingress-nginx -o json | jq -r '
           .items[] |
-          select(.status.phase != "Running" or (.status.containerStatuses[] | select(.ready != true))) |
+          select(.status.phase != "Running" and .status.phase != "Succeeded") |
+          select(.status.containerStatuses == null or (.status.containerStatuses[] | select(.ready != true))) |
           .metadata.name' | wc -l
       register: pod_status
       until: pod_status.stdout == "0" and pod_status.rc == 0

@@ -127,6 +127,61 @@ jfrog_upload() {
   run curl -fsSL -u "$JFROG_CREDS" -T "$file" "$JFROG_URL/$dest"
 }
 
+# Pull an image manifest through a JFrog remote repo (temporarily set Online).
+# This caches the manifest list with its ORIGINAL digest — required for images
+# that containerd pulls by digest (e.g. kube-webhook-certgen pre-install hook).
+# skopeo copy (single-arch) loses the manifest-list digest and causes 404.
+#   $1 = JFrog remote repo name (e.g. ei-docker-k8s)
+#   $2 = image path without registry prefix (e.g. ingress-nginx/kube-webhook-certgen)
+#   $3 = tag (e.g. v1.5.3)
+precache_via_remote() {
+  local remote_repo="$1" image_path="$2" tag="$3"
+  info "Pre-caching $image_path:$tag via $remote_repo remote..."
+
+  # Temporarily set remote Online
+  curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
+    -H "Content-Type: application/json" -d '{"offline":false}' > /dev/null 2>&1
+
+  # Fetch manifest list (caches in JFrog with original digest)
+  local http_code
+  http_code=$(curl -s -u "$JFROG_CREDS" \
+    -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
+    -o /dev/null -w "%{http_code}" \
+    "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$tag")
+
+  # Also fetch the amd64-specific manifest if it's a multi-arch image
+  local digest
+  digest=$(curl -s -u "$JFROG_CREDS" \
+    -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+    "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$tag" \
+    2>/dev/null | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  for m in d.get('manifests',[]):
+    p=m.get('platform',{})
+    if p.get('architecture')=='amd64' and p.get('os')=='linux':
+      print(m['digest']); break
+except: pass" 2>/dev/null)
+
+  if [[ -n "$digest" ]]; then
+    curl -s -u "$JFROG_CREDS" \
+      -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
+      -o /dev/null \
+      "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$digest" 2>/dev/null || true
+  fi
+
+  # Set back to Offline
+  curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
+    -H "Content-Type: application/json" -d '{"offline":true}' > /dev/null 2>&1
+
+  if [[ "$http_code" == "200" ]]; then
+    success "$image_path:$tag cached (HTTP $http_code)"
+  else
+    warn "$image_path:$tag — HTTP $http_code from $remote_repo"
+  fi
+}
+
 check_prereqs() {
   local missing=()
   for cmd in curl skopeo helm pip3 ansible-galaxy git python3; do
@@ -311,6 +366,7 @@ step_3a() {
     # ── ECR ──────────────────────────────────────────────────────────────────
     "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2|q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
     "public.ecr.aws/bitnami/minio:2024.11.7-debian-12-r0|bitnami/minio:2024.11.7-debian-12-r0"
+    "public.ecr.aws/bitnami/minio-client:2024.12.18-debian-12-r0|bitnami/minio-client:2024.12.18-debian-12-r0"
 
     # ── GHCR ─────────────────────────────────────────────────────────────────
     "ghcr.io/huggingface/text-generation-inference:2.4.0-intel-cpu|huggingface/text-generation-inference:2.4.0-intel-cpu"
@@ -380,7 +436,7 @@ step_3a() {
     local src="${entry%%|*}"
     local dest_path="${entry##*|}"
     info "Copying $src -> $dest_repo/$dest_path"
-    if run skopeo copy --src-tls-verify=false "${skopeo_dest_flags[@]}" \
+    if run skopeo copy --all --src-tls-verify=false "${skopeo_dest_flags[@]}" \
         "docker://$src" "docker://$JFROG_HOST/$dest_repo/$dest_path"; then
       copied=$((copied+1))
     else
@@ -393,7 +449,7 @@ step_3a() {
   # apisix-ingress-controller requires Docker Hub credentials (rate-limited / auth required)
   if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
     info "Copying apache/apisix-ingress-controller:1.8.0 from Docker Hub..."
-    if run skopeo copy \
+    if run skopeo copy --all \
         --src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS" \
         "${skopeo_dest_flags[@]}" \
         "docker://docker.io/apache/apisix-ingress-controller:1.8.0" \
@@ -680,17 +736,17 @@ step_3g() {
   cd "$bindir"
 
   for bin in kubeadm kubectl kubelet; do
-    run curl -fsSLO "https://dl.k8s.io/release/v1.31.4/bin/linux/amd64/$bin"
-    jfrog_upload "$bin" "ei-generic-binaries/dl.k8s.io/release/v1.31.4/bin/linux/amd64/$bin"
+    run curl -fsSLO "https://dl.k8s.io/release/v1.30.4/bin/linux/amd64/$bin"
+    jfrog_upload "$bin" "ei-generic-binaries/dl.k8s.io/release/v1.30.4/bin/linux/amd64/$bin"
   done
 
   run curl -fsSLO "https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-amd64-v1.4.0.tgz"
   jfrog_upload "cni-plugins-linux-amd64-v1.4.0.tgz" \
     "ei-generic-binaries/github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-amd64-v1.4.0.tgz"
 
-  run curl -fsSLO "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.31.1/crictl-v1.31.1-linux-amd64.tar.gz"
-  jfrog_upload "crictl-v1.31.1-linux-amd64.tar.gz" \
-    "ei-generic-binaries/github.com/kubernetes-sigs/cri-tools/releases/download/v1.31.1/crictl-v1.31.1-linux-amd64.tar.gz"
+  run curl -fsSLO "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.1/crictl-v1.30.1-linux-amd64.tar.gz"
+  jfrog_upload "crictl-v1.30.1-linux-amd64.tar.gz" \
+    "ei-generic-binaries/github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.1/crictl-v1.30.1-linux-amd64.tar.gz"
 
   run curl -fsSLO "https://github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz"
   jfrog_upload "etcd-v3.5.16-linux-amd64.tar.gz" \
