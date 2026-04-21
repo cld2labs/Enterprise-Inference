@@ -74,6 +74,12 @@ EOF
                     echo "Containerd mirrors configured and restarted."
                 fi
                 install_kubernetes "$@"
+                if [[ "$airgap_enabled" == "yes" ]]; then
+                    echo "Patching local-path-config to use busybox:1.28 (airgap mode)..."
+                    kubectl patch configmap local-path-config -n local-path-storage --type merge -p \
+                      '{"data":{"helperPod.yaml":"apiVersion: v1\nkind: Pod\nmetadata:\n  name: helper-pod\nspec:\n  containers:\n  - name: helper-pod\n    image: \"docker.io/library/busybox:1.28\"\n    imagePullPolicy: IfNotPresent"}}' \
+                      2>/dev/null || true
+                fi
             else
                 echo "Skipping Kubernetes installation..."
             fi

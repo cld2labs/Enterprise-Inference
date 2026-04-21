@@ -341,27 +341,38 @@ step_3a() {
     "docker.io/rancher/local-path-provisioner:v0.0.24|rancher/local-path-provisioner:v0.0.24"
     "docker.io/library/busybox:latest|library/busybox:1.28"    # 1.28 manifest no longer in Hub v2 API — copy latest, push as 1.28
     "docker.io/library/busybox:latest|library/busybox:latest"  # local-path provisioner helper pod uses busybox:latest
+    "docker.io/library/busybox:latest|library/busybox:1.36"    # genai-gateway init container uses busybox:1.36
     "docker.io/curlimages/curl:latest|curlimages/curl:latest"  # model registration job
 
     # ── registry.k8s.io ───────────────────────────────────────────────────────
+    # Dest path must NOT include registry.k8s.io/ prefix.
+    # containerd mirror with override_path=true strips the registry hostname and
+    # appends only the image path, so the request arrives as:
+    #   /v2/ei-docker-virtual/coredns/coredns/manifests/v1.11.3  (no prefix)
+    # JFrog remote repos (ei-docker-k8s) also store images without the registry prefix.
     "registry.k8s.io/ingress-nginx/controller:v1.12.2|ingress-nginx/controller:v1.12.2"
     "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.3|ingress-nginx/kube-webhook-certgen:v1.5.3"
-    "registry.k8s.io/pause:3.9|pause:3.9"                      # k8s v1.30.4 uses pause:3.9
+    "registry.k8s.io/pause:3.9|pause:3.9"
+    "registry.k8s.io/pause:3.10|pause:3.10"
     "registry.k8s.io/etcd:3.5.12-0|etcd:3.5.12-0"
     "registry.k8s.io/kube-apiserver:v1.30.4|kube-apiserver:v1.30.4"
     "registry.k8s.io/kube-controller-manager:v1.30.4|kube-controller-manager:v1.30.4"
     "registry.k8s.io/kube-scheduler:v1.30.4|kube-scheduler:v1.30.4"
     "registry.k8s.io/kube-proxy:v1.30.4|kube-proxy:v1.30.4"
     "registry.k8s.io/coredns/coredns:v1.11.1|coredns/coredns:v1.11.1"
+    "registry.k8s.io/coredns/coredns:v1.11.3|coredns/coredns:v1.11.3"
     "registry.k8s.io/dns/k8s-dns-node-cache:1.22.28|dns/k8s-dns-node-cache:1.22.28"
     "registry.k8s.io/cpa/cluster-proportional-autoscaler:v1.8.8|cpa/cluster-proportional-autoscaler:v1.8.8"
 
     # ── quay.io ───────────────────────────────────────────────────────────────
     "quay.io/calico/node:v3.28.1|calico/node:v3.28.1"
-    "quay.io/calico/node:v3.29.1|calico/node:v3.29.1"
     "quay.io/calico/cni:v3.28.1|calico/cni:v3.28.1"
     "quay.io/calico/kube-controllers:v3.28.1|calico/kube-controllers:v3.28.1"
     "quay.io/calico/pod2daemon-flexvol:v3.28.1|calico/pod2daemon-flexvol:v3.28.1"
+    "quay.io/calico/node:v3.29.1|calico/node:v3.29.1"
+    "quay.io/calico/cni:v3.29.1|calico/cni:v3.29.1"
+    "quay.io/calico/kube-controllers:v3.29.1|calico/kube-controllers:v3.29.1"
+    "quay.io/calico/pod2daemon-flexvol:v3.29.1|calico/pod2daemon-flexvol:v3.29.1"
   )
 
   local copied=0 failed=0 fail_list=()
