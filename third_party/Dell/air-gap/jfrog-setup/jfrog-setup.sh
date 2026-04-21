@@ -358,10 +358,9 @@ step_3a() {
   step_hdr "3a - Docker Images"
   local dest_repo="ei-docker-local"
   local -a skopeo_dest_flags=(--dest-tls-verify=false --dest-creds "$JFROG_CREDS")
-  # --preserve-digests: copy manifests byte-for-byte without re-encoding;
-  # required to handle in-toto attestation layers (application/vnd.in-toto+json)
-  # that older skopeo versions cannot compress.
-  local -a skopeo_base=(--all --preserve-digests --src-tls-verify=false)
+  # Copy only linux/amd64 manifest — skips attestation/in-toto layers that
+  # older skopeo versions cannot handle when using --all.
+  local -a skopeo_base=(--src-tls-verify=false --override-arch amd64 --override-os linux)
 
   # Format: "source_image|dest_path_in_ei-docker-local"
   # busybox:1.28 is no longer available via Docker Hub v2 API — copy latest and push as 1.28
@@ -545,11 +544,14 @@ step_3c() {
     ansible==9.13.0 ansible-core==2.16.18 \
     jinja2 jmespath==1.0.1 jsonschema==4.23.0 jsonschema-specifications \
     netaddr==1.3.0 kubernetes==35.0.0 pyyaml==6.0.3 \
-    cryptography==44.0.0 cryptography==46.0.7 requests oauthlib requests-oauthlib urllib3 \
+    cryptography==44.0.0 requests oauthlib requests-oauthlib urllib3 \
     certifi charset-normalizer idna packaging typing-extensions \
     six python-dateutil attrs rpds-py referencing resolvelib \
     durationpy websocket-client cffi pycparser markupsafe \
     -d "$wheelsdir"
+
+  # Download cryptography 46.x separately — cannot mix with 44.x in one pip download call
+  run pip3 download cryptography==46.0.7 -d "$wheelsdir"
 
   for pkg in "$wheelsdir"/*.whl "$wheelsdir"/*.tar.gz; do
     [[ -f "$pkg" ]] || continue
