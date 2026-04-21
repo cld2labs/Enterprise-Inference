@@ -277,26 +277,33 @@ step_2() {
   curl -su "$JFROG_CREDS" \
     "$JFROG_URL/api/system/configuration" > /tmp/jfrog-config.xml
 
+  # Patch both enabledForAnonymous and buildGlobalBasicReadForAnonymous to true.
+  # The UI "Allow Anonymous Access" checkbox only sets buildGlobalBasicReadForAnonymous.
+  # The token service (/v2/token) requires enabledForAnonymous=true to return 200 for
+  # anonymous Bearer token requests. Both must be true for containerd mirror pulls to work.
   local apply_config=false
-  if grep -q "<enabledForAnonymous>false</enabledForAnonymous>" /tmp/jfrog-config.xml; then
-    sed -i 's|<enabledForAnonymous>false</enabledForAnonymous>|<enabledForAnonymous>true</enabledForAnonymous>|g' \
-      /tmp/jfrog-config.xml
-    apply_config=true
-  elif ! grep -q "<enabledForAnonymous>" /tmp/jfrog-config.xml; then
-    # Field is missing entirely — inject it into the <security> block
-    # If no <security> block exists, append one before </config>
-    if grep -q "<security>" /tmp/jfrog-config.xml; then
-      sed -i 's|<security>|<security>\n  <enabledForAnonymous>true</enabledForAnonymous>|' /tmp/jfrog-config.xml
-    else
-      sed -i 's|</config>|<security><enabledForAnonymous>true</enabledForAnonymous></security>\n</config>|' /tmp/jfrog-config.xml
+
+  for xml_field in enabledForAnonymous buildGlobalBasicReadForAnonymous; do
+    if grep -q "<${xml_field}>false</${xml_field}>" /tmp/jfrog-config.xml; then
+      sed -i "s|<${xml_field}>false</${xml_field}>|<${xml_field}>true</${xml_field}>|g" /tmp/jfrog-config.xml
+      apply_config=true
+    elif ! grep -q "<${xml_field}>" /tmp/jfrog-config.xml; then
+      # Field missing — inject into <security> block, or create one
+      if grep -q "<security>" /tmp/jfrog-config.xml; then
+        sed -i "s|<security>|<security>\n  <${xml_field}>true</${xml_field}>|" /tmp/jfrog-config.xml
+      else
+        sed -i "s|</config>|<security><${xml_field}>true</${xml_field}></security>\n</config>|" /tmp/jfrog-config.xml
+      fi
+      apply_config=true
     fi
-    apply_config=true
-  else
-    success "enabledForAnonymous already true — skipping"
+  done
+
+  if ! $apply_config; then
+    success "enabledForAnonymous and buildGlobalBasicReadForAnonymous already true — skipping"
   fi
 
   if $apply_config; then
-    info "Applying updated configuration..."
+    info "Applying updated configuration (enabledForAnonymous + buildGlobalBasicReadForAnonymous)..."
     local http_code
     http_code=$(curl -su "$JFROG_CREDS" -X POST \
       "$JFROG_URL/api/system/configuration" \
@@ -304,7 +311,7 @@ step_2() {
       --data-binary @/tmp/jfrog-config.xml \
       -o /tmp/jfrog-config-resp.txt -w "%{http_code}")
     if [[ "$http_code" == "200" ]]; then
-      success "enabledForAnonymous set to true"
+      success "Anonymous access config applied"
     else
       error "Failed to apply config (HTTP $http_code): $(cat /tmp/jfrog-config-resp.txt)"
     fi
@@ -345,7 +352,9 @@ step_2() {
     success "Anonymous token endpoint OK (HTTP 200)"
   else
     warn "Anonymous token endpoint returned HTTP $token_code — containerd mirror pulls may fail"
-    warn "Ensure enabledForAnonymous=true and anonymous-user permission target is set"
+    warn "If the config was just applied, JFrog may need a restart to pick it up:"
+    warn "  sudo systemctl restart artifactory"
+    warn "Then re-run: ./jfrog-setup.sh --step 2"
   fi
 
   success "Step 2 complete — anonymous access enabled"
@@ -369,7 +378,7 @@ step_3a() {
     # ── ECR ──────────────────────────────────────────────────────────────────
     "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2|q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
     "public.ecr.aws/bitnami/minio:2024.11.7-debian-12-r0|bitnami/minio:2024.11.7-debian-12-r0"
-    "docker.io/bitnami/minio-client:2024.12.18-debian-12-r0|bitnami/minio-client:2024.12.18-debian-12-r0"
+    # minio-client (mc) is bundled inside the minio server image — no separate image needed
 
     # ── GHCR ─────────────────────────────────────────────────────────────────
     "ghcr.io/huggingface/text-generation-inference:2.4.0-intel-cpu|huggingface/text-generation-inference:2.4.0-intel-cpu"
