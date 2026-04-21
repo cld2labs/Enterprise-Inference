@@ -358,6 +358,10 @@ step_3a() {
   step_hdr "3a - Docker Images"
   local dest_repo="ei-docker-local"
   local -a skopeo_dest_flags=(--dest-tls-verify=false --dest-creds "$JFROG_CREDS")
+  # --preserve-digests: copy manifests byte-for-byte without re-encoding;
+  # required to handle in-toto attestation layers (application/vnd.in-toto+json)
+  # that older skopeo versions cannot compress.
+  local -a skopeo_base=(--all --preserve-digests --src-tls-verify=false)
 
   # Format: "source_image|dest_path_in_ei-docker-local"
   # busybox:1.28 is no longer available via Docker Hub v2 API — copy latest and push as 1.28
@@ -366,7 +370,7 @@ step_3a() {
     # ── ECR ──────────────────────────────────────────────────────────────────
     "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2|q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
     "public.ecr.aws/bitnami/minio:2024.11.7-debian-12-r0|bitnami/minio:2024.11.7-debian-12-r0"
-    "public.ecr.aws/bitnami/minio-client:2024.12.18-debian-12-r0|bitnami/minio-client:2024.12.18-debian-12-r0"
+    "docker.io/bitnami/minio-client:2024.12.18-debian-12-r0|bitnami/minio-client:2024.12.18-debian-12-r0"
 
     # ── GHCR ─────────────────────────────────────────────────────────────────
     "ghcr.io/huggingface/text-generation-inference:2.4.0-intel-cpu|huggingface/text-generation-inference:2.4.0-intel-cpu"
@@ -436,7 +440,13 @@ step_3a() {
     local src="${entry%%|*}"
     local dest_path="${entry##*|}"
     info "Copying $src -> $dest_repo/$dest_path"
-    if run skopeo copy --all --src-tls-verify=false "${skopeo_dest_flags[@]}" \
+
+    local -a src_cred_flags=()
+    if [[ "$src" == docker.io/* ]] && [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
+      src_cred_flags+=(--src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS")
+    fi
+
+    if run skopeo copy "${skopeo_base[@]}" "${src_cred_flags[@]}" "${skopeo_dest_flags[@]}" \
         "docker://$src" "docker://$JFROG_HOST/$dest_repo/$dest_path"; then
       copied=$((copied+1))
     else
@@ -449,7 +459,7 @@ step_3a() {
   # apisix-ingress-controller requires Docker Hub credentials (rate-limited / auth required)
   if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
     info "Copying apache/apisix-ingress-controller:1.8.0 from Docker Hub..."
-    if run skopeo copy --all \
+    if run skopeo copy "${skopeo_base[@]}" \
         --src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS" \
         "${skopeo_dest_flags[@]}" \
         "docker://docker.io/apache/apisix-ingress-controller:1.8.0" \
