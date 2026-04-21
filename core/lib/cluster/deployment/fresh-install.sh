@@ -58,7 +58,7 @@ server = "https://$_reg"
 [host."http://${_jfrog_host}/v2/ei-docker-virtual"]
   capabilities = ["pull", "resolve"]
   override_path = true
-  [host."http://${jfrog_host}/v2/ei-docker-virtual".header]
+  [host."http://${_jfrog_host}/v2/ei-docker-virtual".header]
     Authorization = ["Basic $_b64"]
 EOF
                     done
@@ -170,7 +170,11 @@ EOF
                     --extra-vars "cluster_url=${cluster_url} \
                                   cert_file=${cert_file} \
                                   key_file=${key_file} \
-                                  kubernetes_platform=${kubernetes_platform}" \
+                                  kubernetes_platform=${kubernetes_platform} \
+                                  airgap_enabled=${airgap_enabled} \
+                                  jfrog_url=${jfrog_url} \
+                                  jfrog_username=${jfrog_username} \
+                                  jfrog_password=${jfrog_password}" \
                     --vault-password-file "$vault_pass_file"
                 if [ $? -eq 0 ]; then
                     echo "Agentic AI Plugin deployed successfully."

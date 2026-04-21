@@ -213,6 +213,23 @@ except Exception as e:
         sed -i "s|files_repo: \"http://[^@]*@[0-9.]*:[0-9]*/artifactory|files_repo: \"http://${jfrog_username}:${jfrog_password}@${_jfrog_host}/artifactory|g" \
             "$KUBESPRAYDIR/inventory/mycluster/group_vars/all/offline.yml"
     fi
+    # In airgap mode, force kube_version in k8s_cluster group_vars to match the version
+    # cached in JFrog. group_vars/k8s_cluster/ has higher Ansible precedence than
+    # group_vars/all/ so offline.yml's kube_version pin is silently ignored without this.
+    if [[ "$airgap_enabled" == "yes" ]]; then
+        local _k8s_cluster_yml="$KUBESPRAYDIR/inventory/mycluster/group_vars/k8s_cluster/k8s-cluster.yml"
+        local _kube_ver
+        _kube_ver=$(grep '^kube_version:' "$HOMEDIR/inventory/metadata/offline.yml" 2>/dev/null | awk '{print $2}')
+        if [ -n "$_kube_ver" ] && [ -f "$_k8s_cluster_yml" ]; then
+            if grep -q "^kube_version:" "$_k8s_cluster_yml"; then
+                sed -i "s|^kube_version:.*|kube_version: ${_kube_ver}|" "$_k8s_cluster_yml"
+            else
+                echo "kube_version: ${_kube_ver}" >> "$_k8s_cluster_yml"
+            fi
+            echo "Pinned kube_version: ${_kube_ver} in k8s_cluster group_vars (airgap mode)"
+        fi
+    fi
+
     # In airgap mode, patch containerd hosts.toml.j2 so every mirror host includes
     # Basic auth credentials. containerd's anonymous Bearer token flow fails when
     # JFrog anonymous access is restricted — injecting credentials directly bypasses it.
@@ -321,7 +338,7 @@ PYEOF
             fi
         done
     else
-        ansible-galaxy collection install community.kubernetes
+        ansible-galaxy collection install kubernetes.core community.general ansible.posix
     fi
 }
 

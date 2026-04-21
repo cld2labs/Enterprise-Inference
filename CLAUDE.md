@@ -523,25 +523,25 @@ Kubespray v2.27.0 downloads all Kubernetes binaries during the `download` role. 
 | Component | Version |
 |---|---|
 | kubernetes | v1.30.4 |
-| containerd | 1.7.21 |
+| containerd | 1.7.24 |
 | calico | v3.28.1 |
 | cni-plugins | v1.4.0 |
 | helm | v3.15.4 |
-| etcd | v3.5.12 |
-| crictl | v1.30.0 |
-| runc | v1.1.13 |
+| etcd | v3.5.16 |
+| crictl | v1.30.1 |
+| runc | v1.2.3 |
 
 **Binaries uploaded to JFrog `ei-generic-binaries` with path structure mirroring original URLs:**
 ```
 dl.k8s.io/release/v1.30.4/bin/linux/amd64/{kubeadm,kubectl,kubelet}
 github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-amd64-v1.4.0.tgz
-github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.0/crictl-v1.30.0-linux-amd64.tar.gz
-github.com/etcd-io/etcd/releases/download/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz
+github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.1/crictl-v1.30.1-linux-amd64.tar.gz
+github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz
 github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64
 github.com/projectcalico/calico/archive/v3.28.1.tar.gz
 get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz
-github.com/containerd/containerd/releases/download/v1.7.21/containerd-1.7.21-linux-amd64.tar.gz
-github.com/opencontainers/runc/releases/download/v1.1.13/runc.amd64
+github.com/containerd/containerd/releases/download/v1.7.24/containerd-1.7.24-linux-amd64.tar.gz
+github.com/opencontainers/runc/releases/download/v1.2.3/runc.amd64
 ```
 
 ---

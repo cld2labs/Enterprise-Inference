@@ -1,11 +1,22 @@
 # Copyright (C) 2025-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 ---
-- name: Ensure Python pip module is installed
+- name: Ensure Python pip module is installed (internet)
   ansible.builtin.package:
     name: python3-pip
     state: present
   become: true
+  when: not airgap_enabled | default(false) | bool
+  tags: always
+
+- name: Ensure Python pip module is installed (airgap)
+  ansible.builtin.shell: |
+    apt-get install -y --fix-missing python3-pip 2>&1 || true
+    python3 -m pip --version &>/dev/null || true
+  args:
+    executable: /bin/bash
+  become: true
+  when: airgap_enabled | default(false) | bool
   tags: always
 - name: Install Kubernetes Python SDK (internet)
   ansible.builtin.pip:

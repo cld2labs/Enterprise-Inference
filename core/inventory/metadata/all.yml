@@ -184,6 +184,17 @@ containerd_registries_mirrors:
           - pull
           - resolve
         override_path: true
+## Pin Kubernetes to version with binaries and images cached in JFrog
+kube_version: v1.30.4
+
+## Pin Calico to version validated in JFrog airgap cache (v3.28.1)
+## Without this pin kubespray uses its own default which may differ across kubespray versions
+calico_version: v3.28.1
+
+## Pin CoreDNS to version validated in JFrog airgap cache (v1.11.1)
+## Without this pin kubespray may select a newer version not cached in JFrog
+coredns_version: v1.11.1
+
 ## Used to control no_log attribute
 unsafe_show_logs: false
 
