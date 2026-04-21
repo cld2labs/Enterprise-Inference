@@ -485,6 +485,21 @@ step_3a() {
     local dest_path="${entry##*|}"
     info "Copying $src -> $dest_repo/$dest_path"
 
+    # Skip if manifest already exists in JFrog — avoids Docker Hub rate limits on re-runs.
+    # Extract image name and tag from dest_path (e.g. "library/nginx:1.25.2-alpine")
+    local dest_image="${dest_path%:*}" dest_tag="${dest_path##*:}"
+    local existing_code
+    existing_code=$(curl -s -u "$JFROG_CREDS" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+      -o /dev/null -w "%{http_code}" \
+      "http://${JFROG_HOST}/v2/${dest_repo}/${dest_image}/manifests/${dest_tag}")
+    if [[ "$existing_code" == "200" ]]; then
+      info "Already in JFrog — skipping: $dest_repo/$dest_path"
+      copied=$((copied+1))
+      continue
+    fi
+
     local -a src_cred_flags=()
     if [[ "$src" == docker.io/* ]] && [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
       src_cred_flags+=(--src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS")
@@ -502,16 +517,26 @@ step_3a() {
 
   # apisix-ingress-controller requires Docker Hub credentials (rate-limited / auth required)
   if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
-    info "Copying apache/apisix-ingress-controller:1.8.0 from Docker Hub..."
-    if run skopeo copy "${skopeo_base[@]}" \
-        --src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS" \
-        "${skopeo_dest_flags[@]}" \
-        "docker://docker.io/apache/apisix-ingress-controller:1.8.0" \
-        "docker://$JFROG_HOST/$dest_repo/apache/apisix-ingress-controller:1.8.0"; then
+    local apisix_ic_code
+    apisix_ic_code=$(curl -s -u "$JFROG_CREDS" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      -o /dev/null -w "%{http_code}" \
+      "http://${JFROG_HOST}/v2/${dest_repo}/apache/apisix-ingress-controller/manifests/1.8.0")
+    if [[ "$apisix_ic_code" == "200" ]]; then
+      info "Already in JFrog — skipping: $dest_repo/apache/apisix-ingress-controller:1.8.0"
       copied=$((copied+1))
     else
-      warn "Failed: apisix-ingress-controller:1.8.0"
-      failed=$((failed+1))
+      info "Copying apache/apisix-ingress-controller:1.8.0 from Docker Hub..."
+      if run skopeo copy "${skopeo_base[@]}" \
+          --src-creds "$DOCKERHUB_USER:$DOCKERHUB_PASS" \
+          "${skopeo_dest_flags[@]}" \
+          "docker://docker.io/apache/apisix-ingress-controller:1.8.0" \
+          "docker://$JFROG_HOST/$dest_repo/apache/apisix-ingress-controller:1.8.0"; then
+        copied=$((copied+1))
+      else
+        warn "Failed: apisix-ingress-controller:1.8.0"
+        failed=$((failed+1))
+      fi
     fi
   else
     warn "Skipping apisix-ingress-controller:1.8.0 — pass --dockerhub-user and --dockerhub-pass"
