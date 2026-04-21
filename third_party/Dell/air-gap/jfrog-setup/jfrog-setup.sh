@@ -381,25 +381,20 @@ print(json.dumps(perm))
     warn "Check that nginx:1.25.2-alpine is cached in JFrog (step 3a must have run first)."
   fi
 
-  # Warn about anonymous limitation but confirm it's non-blocking
+  # Check if anonymous Docker API access works (bonus, not critical)
   info "Checking anonymous Docker API access..."
   local anon_manifest_code
   anon_manifest_code=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
     "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
   if [[ "$anon_manifest_code" == "401" ]]; then
-    warn "Anonymous Docker API access blocked (HTTP 401) — this is expected and non-blocking"
-    warn "VM2 containerd mirrors must use credentials in /etc/containerd/certs.d/docker.io/hosts.toml:"
-    warn "  [host.\"http://${JFROG_HOST}/v2/ei-docker-virtual\"]"
-    warn "    capabilities = [\"pull\", \"resolve\"]"
-    warn "    override_path = true"
-    warn "    username = \"admin\""
-    warn "    password = \"password\""
+    warn "Anonymous Docker API access blocked (HTTP 401) — this is expected"
+    warn "VM2 will use authenticated access instead (configured in setup-env.sh)"
   else
-    success "Anonymous Docker API access OK (HTTP $anon_manifest_code) — optional bonus"
+    success "Anonymous Docker API access OK (HTTP $anon_manifest_code)"
   fi
 
-  success "Step 2 complete — authenticated access verified, VM2 ready"
+  success "Step 2 complete — JFrog ready for VM2 deployment"
 }
 
 # ---------------------------------------------------------------------------
