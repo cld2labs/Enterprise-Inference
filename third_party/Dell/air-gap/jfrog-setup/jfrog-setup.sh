@@ -316,42 +316,69 @@ step_2() {
 
   # Set anonymous read permissions on all Docker repos.
   # Note: virtual repos cannot be added to permission targets (JFrog returns 400).
-  # We create two permission targets:
-  #   anonymous-docker-read  — named target for Docker image pulls
-  #   anonymous-user         — required for JFrog token service (/v2/token) to
-  #                            return 200 for anonymous Bearer token requests;
-  #                            without this containerd gets 401 on token fetch
-  #                            even when enabledForAnonymous=true
+  # Two targets are created:
+  #   anonymous-docker  — grants anonymous read on all docker repos (image pulls)
+  #   anonymous-user    — required for /v2/token to return 200 for anonymous Bearer
+  #                       token requests; without this containerd gets 401 on token
+  #                       fetch even when enabledForAnonymous=true
   local docker_repos='["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay","ANY REMOTE"]'
-  for perm_name in anonymous-docker-read anonymous-user; do
+  local perm_name perm_http perm_resp
+  for perm_name in anonymous-docker anonymous-user; do
     info "Setting permission target: $perm_name ..."
-    printf '{"name":"%s","includesPattern":"**","excludesPattern":"","repositories":%s,"principals":{"users":{"anonymous":["r"]}}}' \
-      "$perm_name" "$docker_repos" > /tmp/jfrog-perm.json
-    local http_code
-    http_code=$(curl -su "$JFROG_CREDS" -X PUT \
+    python3 -c "
+import json
+perm = {
+  'name': '${perm_name}',
+  'includesPattern': '**',
+  'excludesPattern': '',
+  'repositories': ['ei-docker-local','ei-docker-dockerhub','ei-docker-ecr','ei-docker-ghcr','ei-docker-k8s','ei-docker-quay','ANY REMOTE'],
+  'principals': {'users': {'anonymous': ['r']}}
+}
+print(json.dumps(perm))
+" > /tmp/jfrog-perm.json
+    perm_http=$(curl -su "$JFROG_CREDS" -X PUT \
       "$JFROG_URL/api/security/permissions/$perm_name" \
       -H "Content-Type: application/json" \
       -d @/tmp/jfrog-perm.json \
       -o /tmp/jfrog-perm-resp.txt -w "%{http_code}")
-    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-      success "$perm_name permissions set"
+    perm_resp=$(cat /tmp/jfrog-perm-resp.txt)
+    if [[ "$perm_http" == "200" || "$perm_http" == "201" ]]; then
+      success "$perm_name permissions set (HTTP $perm_http)"
     else
-      warn "$perm_name API returned HTTP $http_code: $(cat /tmp/jfrog-perm-resp.txt)"
+      error "$perm_name permission PUT returned HTTP $perm_http: $perm_resp"
+      error "Anonymous Docker pulls will NOT work until this is fixed."
+      return 1
     fi
   done
 
-  # Verify the token endpoint responds 200 for anonymous requests
-  info "Verifying anonymous token endpoint..."
+  # Verify 1: token endpoint responds 200 for anonymous requests
+  info "Verifying anonymous token endpoint (/v2/token) ..."
   local token_code
   token_code=$(curl -s -o /dev/null -w "%{http_code}" \
     "http://${JFROG_HOST}/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=${JFROG_HOST}")
   if [[ "$token_code" == "200" ]]; then
     success "Anonymous token endpoint OK (HTTP 200)"
   else
-    warn "Anonymous token endpoint returned HTTP $token_code — containerd mirror pulls may fail"
-    warn "If the config was just applied, JFrog may need a restart to pick it up:"
-    warn "  sudo systemctl restart artifactory"
+    warn "Anonymous token endpoint returned HTTP $token_code"
+    warn "JFrog may need a restart: sudo systemctl restart artifactory"
     warn "Then re-run: ./jfrog-setup.sh --step 2"
+  fi
+
+  # Verify 2: manifest endpoint responds 200 for anonymous requests
+  # This is the actual test that containerd mirror pulls rely on.
+  info "Verifying anonymous manifest access (library/nginx:1.25.2-alpine) ..."
+  local manifest_code
+  manifest_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+    -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+    "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
+  if [[ "$manifest_code" == "200" ]]; then
+    success "Anonymous manifest access OK (HTTP 200) — containerd mirror pulls will work"
+  else
+    warn "Anonymous manifest access returned HTTP $manifest_code"
+    warn "Containerd mirror pulls on VM2 will fail until this returns 200."
+    warn "Check that nginx:1.25.2-alpine is cached in JFrog (step 3a must have run first)."
+    warn "Also verify JFrog anonymous access in the UI: Admin → Security → Settings → Allow Anonymous Access"
   fi
 
   success "Step 2 complete — anonymous access enabled"
