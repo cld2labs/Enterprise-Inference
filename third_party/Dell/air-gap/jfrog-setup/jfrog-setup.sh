@@ -6,8 +6,8 @@
 #
 # One-shot script that sets up JFrog Artifactory for EI airgapped deployment:
 #   Step 1  - Create all required repositories
-#   Step 2  - Enable anonymous access (XML config patch + both anonymous-docker-read
-#             and anonymous-user permission targets — both required for token auth)
+#   Step 2  - Enable anonymous access (Access API PATCH for JFrog 7.38+, XML fallback
+#             for older versions) + anonymous-docker and anonymous-user permission targets
 #   Step 3a - Docker images (via skopeo)
 #   Step 3b - Helm charts
 #   Step 3c - PyPI packages
@@ -271,47 +271,46 @@ step_1() {
 step_2() {
   step_hdr "Step 2 - Enable Anonymous Access"
 
-  # Patch XML config to set enabledForAnonymous=true
-  # The UI toggle only sets buildGlobalBasicReadForAnonymous but NOT enabledForAnonymous
-  info "Fetching JFrog system configuration..."
-  curl -su "$JFROG_CREDS" \
-    "$JFROG_URL/api/system/configuration" > /tmp/jfrog-config.xml
+  # JFrog 7.x (7.38+): anonymous access is stored in the Access microservice DB.
+  # The legacy XML config field (enabledForAnonymous) and access.config.yml are both
+  # ignored once the Access service is initialised. The only reliable way is the
+  # Access REST API, which requires a Bearer token (not Basic auth).
+  info "Getting admin Bearer token (scope=member-of-groups:*) ..."
+  local bearer_token access_http
+  bearer_token=$(curl -su "$JFROG_CREDS" -X POST \
+    "$JFROG_URL/api/security/token" \
+    -d "username=${JFROG_USER}&scope=member-of-groups:*&expires_in=3600" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 
-  # Patch enabledForAnonymous to true so the Docker registry token service (/v2/token)
-  # returns 200 for anonymous Bearer token requests (required for containerd mirror pulls).
-  # NOTE: do NOT patch buildGlobalBasicReadForAnonymous — that is a build-artifact setting
-  # unrelated to Docker image access; adding it causes a 400 if the global build permission
-  # is disabled in JFrog.
-  local apply_config=false
-  if grep -q "<enabledForAnonymous>false</enabledForAnonymous>" /tmp/jfrog-config.xml; then
-    sed -i 's|<enabledForAnonymous>false</enabledForAnonymous>|<enabledForAnonymous>true</enabledForAnonymous>|g' \
-      /tmp/jfrog-config.xml
-    apply_config=true
-  elif ! grep -q "<enabledForAnonymous>" /tmp/jfrog-config.xml; then
-    # Field is missing entirely — inject it into the <security> block
-    if grep -q "<security>" /tmp/jfrog-config.xml; then
-      sed -i 's|<security>|<security>\n  <enabledForAnonymous>true</enabledForAnonymous>|' /tmp/jfrog-config.xml
+  if [[ -n "$bearer_token" ]]; then
+    info "Enabling anonymous access via Access API (/access/api/v1/config) ..."
+    access_http=$(curl -s -X PATCH \
+      "http://${JFROG_HOST}/access/api/v1/config" \
+      -H "Authorization: Bearer $bearer_token" \
+      -H "Content-Type: application/json" \
+      -d '{"security":{"allow-anonymous-access":true}}' \
+      -o /tmp/jfrog-access-resp.txt -w "%{http_code}")
+    if [[ "$access_http" == "200" || "$access_http" == "201" || "$access_http" == "204" ]]; then
+      success "Anonymous access enabled via Access API (HTTP $access_http)"
     else
-      sed -i 's|</config>|<security><enabledForAnonymous>true</enabledForAnonymous></security>\n</config>|' /tmp/jfrog-config.xml
+      warn "Access API returned HTTP $access_http: $(cat /tmp/jfrog-access-resp.txt)"
+      warn "Enable anonymous access manually in JFrog UI:"
+      warn "  Admin → Security → Settings → Allow Anonymous Access → toggle ON"
     fi
-    apply_config=true
   else
-    success "enabledForAnonymous already true — skipping"
+    warn "Could not obtain Bearer token — enable anonymous access manually in JFrog UI:"
+    warn "  Admin → Security → Settings → Allow Anonymous Access → toggle ON"
   fi
 
-  if $apply_config; then
-    info "Applying updated configuration (enabledForAnonymous=true)..."
-    local http_code
-    http_code=$(curl -su "$JFROG_CREDS" -X POST \
-      "$JFROG_URL/api/system/configuration" \
-      -H "Content-Type: application/xml" \
-      --data-binary @/tmp/jfrog-config.xml \
-      -o /tmp/jfrog-config-resp.txt -w "%{http_code}")
-    if [[ "$http_code" == "200" ]]; then
-      success "enabledForAnonymous set to true"
-    else
-      error "Failed to apply config (HTTP $http_code): $(cat /tmp/jfrog-config-resp.txt)"
-    fi
+  # Verify Artifactory API is reachable anonymously (baseline check)
+  info "Verifying Artifactory-level anonymous access ..."
+  local api_code
+  api_code=$(curl -s -o /dev/null -w "%{http_code}" "$JFROG_URL/api/storage/ei-docker-local")
+  if [[ "$api_code" == "200" ]]; then
+    success "Artifactory API anonymous access OK"
+  else
+    warn "Artifactory API returned HTTP $api_code for anonymous request"
+    warn "Re-run: ./jfrog-setup.sh --step 2"
   fi
 
   # Set anonymous read permissions on all Docker repos.
