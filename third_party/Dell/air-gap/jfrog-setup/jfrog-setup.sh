@@ -357,50 +357,43 @@ print(json.dumps(perm))
   done
 
   # Verify 1: token endpoint responds 200 for anonymous requests
+  # Verify the full two-step Docker V2 auth flow (mirrors exactly what containerd does):
+  #   Step 1: GET /v2/token anonymously → should return 200 with a token
+  #   Step 2: GET manifest with Bearer token → should return 200
+  # The bare manifest request returning 401 is the normal auth challenge, not an error.
   info "Verifying anonymous token endpoint (/v2/token) ..."
-  local token_code
-  token_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    "http://${JFROG_HOST}/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=${JFROG_HOST}")
+  local token_resp token_code anon_token
+  token_resp=$(curl -s \
+    "http://${JFROG_HOST}/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=${JFROG_HOST}" \
+    -w "\n%{http_code}")
+  token_code=$(echo "$token_resp" | tail -1)
+  anon_token=$(echo "$token_resp" | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || true)
+
   if [[ "$token_code" == "200" ]]; then
     success "Anonymous token endpoint OK (HTTP 200)"
   else
     warn "Anonymous token endpoint returned HTTP $token_code"
-    warn "JFrog may need a restart: sudo systemctl restart artifactory"
-    warn "Then re-run: ./jfrog-setup.sh --step 2"
+    warn "Enable anonymous access in JFrog UI: http://${JFROG_HOST}/ui"
+    warn "  Admin → Security → Settings → Allow Anonymous Access → ON"
   fi
 
-  # Verify 2: manifest endpoint responds 200 for authenticated requests
-  # Note: JFrog's Docker registry API returns 401 for anonymous pulls even with
-  # enabledForAnonymous=true and permissions set. This is a known JFrog limitation.
-  # Containerd mirrors on VM2 must use credentials instead.
-  info "Verifying authenticated manifest access (library/nginx:1.25.2-alpine) ..."
-  local manifest_code
-  manifest_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "$JFROG_CREDS" \
-    -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-    -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
-    "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
-  if [[ "$manifest_code" == "200" ]]; then
-    success "Authenticated manifest access OK (HTTP 200) — images are cached and accessible"
-  else
-    warn "Authenticated manifest access returned HTTP $manifest_code"
-    warn "Check that nginx:1.25.2-alpine is cached in JFrog (step 3a must have run first)."
+  # Step 2: use the anonymous token to fetch the manifest
+  if [[ -n "$anon_token" ]]; then
+    info "Verifying end-to-end anonymous pull flow (token → manifest) ..."
+    local flow_code
+    flow_code=$(curl -s -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer $anon_token" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
+    if [[ "$flow_code" == "200" ]]; then
+      success "End-to-end anonymous pull flow OK — containerd mirror pulls will work"
+    else
+      warn "Manifest with anonymous token returned HTTP $flow_code"
+      warn "Permission targets may not be applied yet — check anonymous-docker and anonymous-user targets in JFrog UI"
+    fi
   fi
 
-  # Check if anonymous Docker API access works (bonus, not critical)
-  info "Checking anonymous Docker API access..."
-  local anon_manifest_code
-  anon_manifest_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-    "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
-  if [[ "$anon_manifest_code" == "401" ]]; then
-    warn "Anonymous Docker API access blocked (HTTP 401) — this is expected"
-    warn "VM2 will use authenticated access instead (configured in setup-env.sh)"
-  else
-    success "Anonymous Docker API access OK (HTTP $anon_manifest_code)"
-  fi
-
-  success "Step 2 complete — JFrog ready for VM2 deployment"
+  success "Step 2 complete — anonymous access enabled"
 }
 
 # ---------------------------------------------------------------------------
