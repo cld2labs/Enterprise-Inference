@@ -127,10 +127,14 @@ jfrog_upload() {
   run curl -fsSL -u "$JFROG_CREDS" -T "$file" "$JFROG_URL/$dest"
 }
 
-# Pull an image manifest through a JFrog remote repo (temporarily set Online).
-# This caches the manifest list with its ORIGINAL digest — required for images
-# that containerd pulls by digest (e.g. kube-webhook-certgen pre-install hook).
-# skopeo copy (single-arch) loses the manifest-list digest and causes 404.
+# Pull an image through a JFrog remote repo (temporarily set Online).
+# This caches:
+#   1. The manifest list with its ORIGINAL digest — required for images that containerd
+#      pulls by digest (e.g. kube-webhook-certgen pre-install hook). skopeo --override-arch
+#      produces a single-arch manifest with a different digest, causing 404.
+#   2. All amd64 blobs (layers + config) — fetched via skopeo copy to a temp dir.
+#      Manifest-only fetches cache the manifest metadata but NOT the blobs; containerd
+#      then fails when it tries to download the config blob (sha256:fcb7...) and gets 404.
 #   $1 = JFrog remote repo name (e.g. ei-docker-k8s)
 #   $2 = image path without registry prefix (e.g. ingress-nginx/kube-webhook-certgen)
 #   $3 = tag (e.g. v1.5.3)
@@ -142,43 +146,36 @@ precache_via_remote() {
   curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
     -H "Content-Type: application/json" -d '{"offline":false}' > /dev/null 2>&1
 
-  # Fetch manifest list (caches in JFrog with original digest)
+  # Step 1: Fetch manifest list by tag — caches manifest list in JFrog with original digest.
+  # This must happen BEFORE the skopeo copy so the multi-arch manifest list digest is preserved
+  # (skopeo --override-arch only stores a single-arch manifest, not the list).
   local http_code
   http_code=$(curl -s -u "$JFROG_CREDS" \
     -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
     -o /dev/null -w "%{http_code}" \
     "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$tag")
 
-  # Also fetch the amd64-specific manifest if it's a multi-arch image
-  local digest
-  digest=$(curl -s -u "$JFROG_CREDS" \
-    -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
-    "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$tag" \
-    2>/dev/null | python3 -c "
-import sys,json
-try:
-  d=json.load(sys.stdin)
-  for m in d.get('manifests',[]):
-    p=m.get('platform',{})
-    if p.get('architecture')=='amd64' and p.get('os')=='linux':
-      print(m['digest']); break
-except: pass" 2>/dev/null)
-
-  if [[ -n "$digest" ]]; then
-    curl -s -u "$JFROG_CREDS" \
-      -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
-      -o /dev/null \
-      "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$digest" 2>/dev/null || true
-  fi
+  # Step 2: Pull amd64 image blobs through JFrog remote — forces JFrog to fetch and cache
+  # all blob content (config + layers). Manifest-only fetches do NOT cache blobs.
+  # skopeo pulls from the JFrog remote (which proxies to upstream) and caches blobs in JFrog.
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  skopeo copy \
+    --src-tls-verify=false \
+    --src-creds "$JFROG_CREDS" \
+    --override-arch amd64 --override-os linux \
+    "docker://${JFROG_HOST}/${remote_repo}/${image_path}:${tag}" \
+    "dir:${tmpdir}" 2>&1 | sed 's/^/    /' || warn "skopeo blob pull returned non-zero for $image_path:$tag — blobs may be partially cached"
+  rm -rf "$tmpdir"
 
   # Set back to Offline
   curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
     -H "Content-Type: application/json" -d '{"offline":true}' > /dev/null 2>&1
 
   if [[ "$http_code" == "200" ]]; then
-    success "$image_path:$tag cached (HTTP $http_code)"
+    success "$image_path:$tag cached (manifest list + amd64 blobs)"
   else
-    warn "$image_path:$tag — HTTP $http_code from $remote_repo"
+    warn "$image_path:$tag — manifest list HTTP $http_code from $remote_repo"
   fi
 }
 
