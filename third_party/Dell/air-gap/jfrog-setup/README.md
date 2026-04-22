@@ -166,6 +166,29 @@ Click Skip. The `jfrog-setup.sh` script will create all required repositories au
 
 Click Finish to complete the wizard.
 
+### Enable anonymous access (required manual step)
+
+> [!IMPORTANT]
+> This step must be done manually in the UI. The JFrog API cannot automate it reliably
+> because it requires a token with a specific audience (`jfac@...`) that is not obtainable
+> via the standard REST API. `jfrog-setup.sh` step 2 will warn about this and continue,
+> but anonymous access will not be active until you complete this step.
+>
+> Without this, VM2 cannot pull Docker images through the containerd mirror.
+
+1. In the JFrog UI, go to **Administration → Security → General**
+2. Turn on **Allow Anonymous Access**
+3. Click **Save**
+
+You can verify it is working by running this on VM1 after the toggle is on:
+
+```bash
+curl -s "http://localhost:8082/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=localhost:8082" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('OK' if d.get('token') else 'FAILED')"
+```
+
+If it prints `OK`, anonymous access is active and VM2 will be able to pull images.
+
 ---
 
 ## Step 3 - Create Repos, Enable Access, and Upload All Assets
