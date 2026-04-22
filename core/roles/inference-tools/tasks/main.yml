@@ -11,8 +11,8 @@
 
 - name: Ensure Python pip module is installed (airgap)
   ansible.builtin.shell: |
+    python3 -m pip --version &>/dev/null && exit 0
     apt-get install -y --fix-missing python3-pip 2>&1 || true
-    python3 -m pip --version &>/dev/null || true
   args:
     executable: /bin/bash
   become: true

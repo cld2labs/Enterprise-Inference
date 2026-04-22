@@ -594,7 +594,16 @@ step_3b() {
     jfrog_upload "$chart" "ei-helm-local/$chart"
   done
 
-  # Generate and upload index.yaml — JFrog HelmOCI repos do not auto-generate it
+  # Generate and upload index.yaml — JFrog HelmOCI repos do not auto-generate it.
+  # IMPORTANT: index.yaml URLs must use the externally-accessible IP (not localhost),
+  # because VM2 downloads charts using these URLs. If JFROG_URL contains localhost/127.0.0.1,
+  # helm on VM2 will fail with "connection refused" when trying to download chart tarballs.
+  # Always run this script with --jfrog-url http://<VM1-IP>:8082/artifactory.
+  if echo "$JFROG_URL" | grep -qE "localhost|127\.0\.0\.1"; then
+    error "JFROG_URL contains '$JFROG_URL' — index.yaml would have localhost URLs that VM2 cannot reach."
+    error "Re-run with: --jfrog-url http://<VM1-IP>:8082/artifactory"
+    return 1
+  fi
   run helm repo index . --url "$JFROG_URL/ei-helm-local"
   jfrog_upload "index.yaml" "ei-helm-local/index.yaml"
 
