@@ -455,7 +455,8 @@ step_3a() {
     #   /v2/ei-docker-virtual/coredns/coredns/manifests/v1.11.3  (no prefix)
     # JFrog remote repos (ei-docker-k8s) also store images without the registry prefix.
     "registry.k8s.io/ingress-nginx/controller:v1.12.2|ingress-nginx/controller:v1.12.2"
-    "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.3|ingress-nginx/kube-webhook-certgen:v1.5.3"
+    # kube-webhook-certgen is handled via precache_via_remote below (skopeo --all fails on in-toto attestation layers)
+    # "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.3|ingress-nginx/kube-webhook-certgen:v1.5.3"
     "registry.k8s.io/pause:3.9|pause:3.9"
     "registry.k8s.io/pause:3.10|pause:3.10"
     "registry.k8s.io/etcd:3.5.12-0|etcd:3.5.12-0"
@@ -546,6 +547,13 @@ step_3a() {
   if [[ $failed -gt 0 ]]; then
     warn "Failed images:"; for img in "${fail_list[@]}"; do warn "  $img"; done
   fi
+
+  # kube-webhook-certgen must be cached via the remote repo (not skopeo) because the
+  # ingress-nginx chart pulls it by manifest-list digest (sha256:2cf4...). skopeo with
+  # --override-arch produces a single-arch manifest with a different digest, causing 404.
+  # precache_via_remote fetches by tag through JFrog's remote, which caches the original
+  # multi-arch manifest list with its original digest intact.
+  precache_via_remote "ei-docker-k8s" "ingress-nginx/kube-webhook-certgen" "v1.5.3"
 
   # Verify nginx is properly cached — must use Docker Accept headers; plain curl returns 404 even if cached
   info "Verifying nginx:1.25.2-alpine manifest is accessible in JFrog..."
