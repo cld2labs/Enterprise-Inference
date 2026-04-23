@@ -211,8 +211,9 @@ while as it downloads and uploads all assets listed above.
 cd ~/Enterprise-Inference/third_party/Dell/air-gap/jfrog-setup
 chmod +x jfrog-setup.sh
 
+# Replace VM1-IP with the actual value
 ./jfrog-setup.sh \
-  --jfrog-url http://localhost:8082/artifactory \
+  --jfrog-url http://<VM1-IP>:8082/artifactory \
   --jfrog-user admin \
   --jfrog-pass <your-password> \
   --dockerhub-user <dockerhub-username> \
@@ -243,7 +244,7 @@ these commands:
 | Command | What it does |
 |---|---|
 | `./jfrog-setup.sh --step 1` | Creates all JFrog repositories: Docker repos for each upstream registry (Docker Hub, ECR, GHCR, registry.k8s.io, Quay), Helm, PyPI, Debian, and generic repos for binaries and models |
-| `./jfrog-setup.sh --step 2` | Enables anonymous access so VM2 can pull images without credentials. The standard UI toggle does not fully work; this step patches the config directly via the JFrog API |
+| `./jfrog-setup.sh --step 2` | Sets anonymous read permission targets on all Docker repos so VM2 can pull images without credentials. **Note**: the "Allow Anonymous Access" toggle in Administration → Security → General must be enabled manually in the UI before running this step — the JFrog API cannot automate that toggle |
 | `./jfrog-setup.sh --step 3a` | Copies ~40 Docker images from upstream registries into JFrog using skopeo. Most images are pulled anonymously. `apache/apisix-ingress-controller:1.8.0` requires `--dockerhub-user` and `--dockerhub-pass` |
 | `./jfrog-setup.sh --step 3b` | Downloads 10 Helm charts (ingress-nginx, langfuse, apisix, keycloak, postgresql, redis, clickhouse, minio, valkey, nri-resource-policy-balloons) and uploads them along with an `index.yaml` that JFrog does not generate automatically |
 | `./jfrog-setup.sh --step 3c` | Downloads ~30 Python packages used by the EI deployment playbooks and uploads them to JFrog so VM2 can install them without internet access |
