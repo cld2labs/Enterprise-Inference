@@ -2,39 +2,47 @@
 # Copyright (C) 2025-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-# jfrog-setup.sh
+# jfrog-setup-gaudi.sh
 #
-# One-shot script that sets up JFrog Artifactory for EI airgapped deployment:
-#   Step 1  - Create all required repositories
-#   Step 2  - Enable anonymous access configuration + set permission targets
-#             Note: Docker API doesn't support true anonymous pulls; VM2 uses credentials
-#   Step 3a - Docker images (via skopeo)
-#   Step 3b - Helm charts
+# One-shot script that sets up JFrog Artifactory for EI airgapped Gaudi deployment.
+# Covers all base infrastructure (Kubernetes, ingress, keycloak, GenAI Gateway) plus
+# all Gaudi-specific artifacts (vLLM-Gaudi, TGI-Gaudi, TEI-Gaudi, Habana AI Operator,
+# metric-exporter, kube-prometheus-stack, Habana runtime packages).
+#
+#   Step 1  - Create all required repositories (base + Gaudi-specific)
+#   Step 2  - Enable anonymous access + set permission targets
+#   Step 3a - Docker images (base infrastructure + Gaudi inference images)
+#   Step 3b - Helm charts (base + habana-ai-operator + kube-prometheus-stack)
 #   Step 3c - PyPI packages
 #   Step 3d - pip bootstrap wheel
 #   Step 3e - Ansible collections
-#   Step 3f - apt .deb files for jq + pre-cache Kubespray/inference-tools apt packages
-#             (conntrack socat ipset ebtables nfs-common ipvsadm unzip python3-pip)
+#   Step 3f - apt .deb files (base Kubespray packages + Habana runtime packages)
 #   Step 3g - Kubernetes / Kubespray binaries
 #   Step 3h - Kubespray tarball
+#   Step 3k - Habana binaries (installer script + device-plugin manifest)
 #   Step 3i - Meta-Llama-3.1-8B-Instruct model (optional, requires HuggingFace token)
 #   Step 3j - Meta-Llama-3.2-3B-Instruct model (optional, requires HuggingFace token)
+#   Step 4  - Set all remote repos to Offline
 #
 # Run this script on VM1 (internet-connected machine with JFrog installed).
+# vault.habana.ai requires Habana account credentials (--habana-user / --habana-pass).
 #
 # Usage:
-#   ./jfrog-setup.sh [OPTIONS]
+#   ./jfrog-setup-gaudi.sh [OPTIONS]
 #
 # Options:
 #   --jfrog-url URL        JFrog base URL (default: http://localhost:8082/artifactory)
 #   --jfrog-user USER      JFrog username (default: admin)
 #   --jfrog-pass PASS      JFrog password (default: password)
+#   --habana-user USER     vault.habana.ai username (required for operator chart + metric-exporter image)
+#   --habana-pass PASS     vault.habana.ai password
 #   --hf-token TOKEN       HuggingFace token (required for steps 3i and 3j)
 #   --dockerhub-user USER  Docker Hub username (required for apisix-ingress-controller)
 #   --dockerhub-pass PASS  Docker Hub password / PAT
+#   --gaudi-operator VER   Habana AI Operator chart version (default: 1.22.0-740)
 #   --step STEP            Run only a specific step (e.g. --step 1, --step 3a)
 #   --skip STEP            Skip a specific step (repeatable)
-#   --workdir DIR          Working directory for downloads (default: /tmp/ei-airgap-upload)
+#   --workdir DIR          Working directory for downloads (default: /tmp/ei-airgap-gaudi-upload)
 #   --dry-run              Print commands without executing them
 #   -h, --help             Show this help message
 
@@ -46,12 +54,15 @@ set -euo pipefail
 JFROG_URL="${JFROG_URL:-http://localhost:8082/artifactory}"
 JFROG_USER="${JFROG_USER:-admin}"
 JFROG_PASS="${JFROG_PASS:-password}"
+HABANA_USER="${HABANA_USER:-}"
+HABANA_PASS="${HABANA_PASS:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 DOCKERHUB_USER="${DOCKERHUB_USER:-}"
 DOCKERHUB_PASS="${DOCKERHUB_PASS:-}"
+GAUDI_OPERATOR_VERSION="1.22.0-740"
 ONLY_STEP=""
 SKIP_STEPS=()
-WORKDIR="/tmp/ei-airgap-upload"
+WORKDIR="/tmp/ei-airgap-gaudi-upload"
 DRY_RUN=false
 
 # ---------------------------------------------------------------------------
@@ -69,16 +80,19 @@ step_hdr(){ echo -e "\n${CYAN}========== $* ==========${NC}"; }
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --jfrog-url)      JFROG_URL="$2";       shift 2 ;;
-    --jfrog-user)     JFROG_USER="$2";      shift 2 ;;
-    --jfrog-pass)     JFROG_PASS="$2";      shift 2 ;;
-    --hf-token)       HF_TOKEN="$2";        shift 2 ;;
-    --dockerhub-user) DOCKERHUB_USER="$2";  shift 2 ;;
-    --dockerhub-pass) DOCKERHUB_PASS="$2";  shift 2 ;;
-    --step)           ONLY_STEP="$2";       shift 2 ;;
-    --skip)           SKIP_STEPS+=("$2");   shift 2 ;;
-    --workdir)        WORKDIR="$2";         shift 2 ;;
-    --dry-run)        DRY_RUN=true;         shift ;;
+    --jfrog-url)         JFROG_URL="$2";            shift 2 ;;
+    --jfrog-user)        JFROG_USER="$2";           shift 2 ;;
+    --jfrog-pass)        JFROG_PASS="$2";           shift 2 ;;
+    --habana-user)       HABANA_USER="$2";          shift 2 ;;
+    --habana-pass)       HABANA_PASS="$2";          shift 2 ;;
+    --hf-token)          HF_TOKEN="$2";             shift 2 ;;
+    --dockerhub-user)    DOCKERHUB_USER="$2";       shift 2 ;;
+    --dockerhub-pass)    DOCKERHUB_PASS="$2";       shift 2 ;;
+    --gaudi-operator)    GAUDI_OPERATOR_VERSION="$2"; shift 2 ;;
+    --step)              ONLY_STEP="$2";            shift 2 ;;
+    --skip)              SKIP_STEPS+=("$2");        shift 2 ;;
+    --workdir)           WORKDIR="$2";              shift 2 ;;
+    --dry-run)           DRY_RUN=true;              shift ;;
     -h|--help)
       sed -n '/^# Usage:/,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
       exit 0 ;;
@@ -128,13 +142,7 @@ jfrog_upload() {
 }
 
 # Pull an image through a JFrog remote repo (temporarily set Online).
-# This caches:
-#   1. The manifest list with its ORIGINAL digest — required for images that containerd
-#      pulls by digest (e.g. kube-webhook-certgen pre-install hook). skopeo --override-arch
-#      produces a single-arch manifest with a different digest, causing 404.
-#   2. All amd64 blobs (layers + config) — fetched via skopeo copy to a temp dir.
-#      Manifest-only fetches cache the manifest metadata but NOT the blobs; containerd
-#      then fails when it tries to download the config blob (sha256:fcb7...) and gets 404.
+# Caches manifest list (original digest) + all amd64 blobs via skopeo.
 #   $1 = JFrog remote repo name (e.g. ei-docker-k8s)
 #   $2 = image path without registry prefix (e.g. ingress-nginx/kube-webhook-certgen)
 #   $3 = tag (e.g. v1.5.3)
@@ -142,22 +150,15 @@ precache_via_remote() {
   local remote_repo="$1" image_path="$2" tag="$3"
   info "Pre-caching $image_path:$tag via $remote_repo remote..."
 
-  # Temporarily set remote Online
   curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
     -H "Content-Type: application/json" -d '{"offline":false}' > /dev/null 2>&1
 
-  # Step 1: Fetch manifest list by tag — caches manifest list in JFrog with original digest.
-  # This must happen BEFORE the skopeo copy so the multi-arch manifest list digest is preserved
-  # (skopeo --override-arch only stores a single-arch manifest, not the list).
   local http_code
   http_code=$(curl -s -u "$JFROG_CREDS" \
     -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
     -o /dev/null -w "%{http_code}" \
     "${JFROG_URL%/artifactory}/v2/$remote_repo/$image_path/manifests/$tag")
 
-  # Step 2: Pull amd64 image blobs through JFrog remote — forces JFrog to fetch and cache
-  # all blob content (config + layers). Manifest-only fetches do NOT cache blobs.
-  # skopeo pulls from the JFrog remote (which proxies to upstream) and caches blobs in JFrog.
   local tmpdir
   tmpdir=$(mktemp -d)
   skopeo copy \
@@ -165,10 +166,9 @@ precache_via_remote() {
     --src-creds "$JFROG_CREDS" \
     --override-arch amd64 --override-os linux \
     "docker://${JFROG_HOST}/${remote_repo}/${image_path}:${tag}" \
-    "dir:${tmpdir}" 2>&1 | sed 's/^/    /' || warn "skopeo blob pull returned non-zero for $image_path:$tag — blobs may be partially cached"
+    "dir:${tmpdir}" 2>&1 | sed 's/^/    /' || warn "skopeo blob pull returned non-zero for $image_path:$tag"
   rm -rf "$tmpdir"
 
-  # Set back to Offline
   curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
     -H "Content-Type: application/json" -d '{"offline":true}' > /dev/null 2>&1
 
@@ -184,12 +184,10 @@ check_prereqs() {
   for cmd in curl skopeo helm pip3 ansible-galaxy git python3; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
   done
-
   if [[ ${#missing[@]} -eq 0 ]]; then
     success "All prerequisites installed"
     return 0
   fi
-
   error "Missing required tools: ${missing[*]}"
   error "Run install-vm1.sh first to install all prerequisites:"
   error "  sudo ./install-vm1.sh"
@@ -222,8 +220,20 @@ step_1() {
     '{"rclass":"remote","packageType":"docker","url":"https://registry.k8s.io"}'
   create_repo "ei-docker-quay" \
     '{"rclass":"remote","packageType":"docker","url":"https://quay.io"}'
+
+  # Habana vault registry — requires Habana account credentials
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    create_repo "ei-docker-vault-habana" \
+      "{\"rclass\":\"remote\",\"packageType\":\"docker\",\"url\":\"https://vault.habana.ai\",\"username\":\"${HABANA_USER}\",\"password\":\"${HABANA_PASS}\"}"
+  else
+    create_repo "ei-docker-vault-habana" \
+      '{"rclass":"remote","packageType":"docker","url":"https://vault.habana.ai"}'
+    warn "ei-docker-vault-habana created without credentials — set Habana credentials in JFrog UI:"
+    warn "  JFrog UI → Repositories → ei-docker-vault-habana → Edit → enter Habana username/password"
+  fi
+
   create_repo "ei-docker-virtual" \
-    '{"rclass":"virtual","packageType":"docker","repositories":["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay"]}'
+    '{"rclass":"virtual","packageType":"docker","repositories":["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay","ei-docker-vault-habana"]}'
 
   echo "── Helm Repositories ────────────────────────────────────────"
   create_repo "ei-helm-local" \
@@ -232,8 +242,21 @@ step_1() {
     '{"rclass":"remote","packageType":"helmoci","url":"https://kubernetes.github.io/ingress-nginx"}'
   create_repo "ei-helm-langfuse" \
     '{"rclass":"remote","packageType":"helmoci","url":"https://langfuse.github.io/langfuse-k8s"}'
+  create_repo "ei-helm-prometheus" \
+    '{"rclass":"remote","packageType":"helmoci","url":"https://prometheus-community.github.io/helm-charts"}'
+
+  # Gaudi helm repo (vault.habana.ai) — requires Habana credentials
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    create_repo "ei-helm-gaudi" \
+      "{\"rclass\":\"remote\",\"packageType\":\"helmoci\",\"url\":\"https://vault.habana.ai/artifactory/api/helm/gaudi-helm\",\"username\":\"${HABANA_USER}\",\"password\":\"${HABANA_PASS}\"}"
+  else
+    create_repo "ei-helm-gaudi" \
+      '{"rclass":"remote","packageType":"helmoci","url":"https://vault.habana.ai/artifactory/api/helm/gaudi-helm"}'
+    warn "ei-helm-gaudi created without credentials — set Habana credentials in JFrog UI"
+  fi
+
   create_repo "ei-helm-virtual" \
-    '{"rclass":"virtual","packageType":"helmoci","repositories":["ei-helm-local","ei-helm-ingress-nginx","ei-helm-langfuse"]}'
+    '{"rclass":"virtual","packageType":"helmoci","repositories":["ei-helm-local","ei-helm-ingress-nginx","ei-helm-langfuse","ei-helm-prometheus","ei-helm-gaudi"]}'
 
   echo "── PyPI Repositories ────────────────────────────────────────"
   create_repo "ei-pypi-local" \
@@ -268,10 +291,6 @@ step_1() {
 step_2() {
   step_hdr "Step 2 - Enable Anonymous Access"
 
-  # JFrog 7.x (7.38+): anonymous access is stored in the Access microservice DB.
-  # The legacy XML config field (enabledForAnonymous) and access.config.yml are both
-  # ignored once the Access service is initialised. The only reliable way is the
-  # Access REST API, which requires a Bearer token (not Basic auth).
   info "Getting admin Bearer token (scope=member-of-groups:*) ..."
   local bearer_token access_http
   bearer_token=$(curl -su "$JFROG_CREDS" -X POST \
@@ -290,40 +309,15 @@ step_2() {
     if [[ "$access_http" == "200" || "$access_http" == "201" || "$access_http" == "204" ]]; then
       success "Anonymous access enabled via Access API (HTTP $access_http)"
     else
-      # JFrog 7.x Access API requires a token with audience jfac@... (not jfrt@...).
-      # member-of-groups:* tokens are scoped to the Artifactory service and are rejected.
-      # The only reliable way to enable this is through the JFrog UI or the jf CLI.
       warn "Access API returned HTTP $access_http (token audience mismatch — expected jfac@...)"
       warn "Enable anonymous access manually:"
       warn "  Browser: http://${JFROG_HOST}/ui → Admin → Security → Settings → Allow Anonymous Access → ON"
-      warn "  OR: jf config add --url http://${JFROG_HOST} --user ${JFROG_USER} --password ${JFROG_PASS} --interactive=false"
-      warn "       jf rt curl -X PATCH /access/api/v1/config -H 'Content-Type: application/json' -d '{\"security\":{\"allow-anonymous-access\":true}}'"
     fi
   else
-    warn "Could not obtain Bearer token."
-    warn "Enable anonymous access manually:"
-    warn "  Browser: http://${JFROG_HOST}/ui → Admin → Security → Settings → Allow Anonymous Access → ON"
+    warn "Could not obtain Bearer token — enable anonymous access manually via JFrog UI"
   fi
 
-  # Verify Artifactory API is reachable anonymously (baseline check)
-  info "Verifying Artifactory-level anonymous access ..."
-  local api_code
-  api_code=$(curl -s -o /dev/null -w "%{http_code}" "$JFROG_URL/api/storage/ei-docker-local")
-  if [[ "$api_code" == "200" ]]; then
-    success "Artifactory API anonymous access OK"
-  else
-    warn "Artifactory API returned HTTP $api_code for anonymous request"
-    warn "Re-run: ./jfrog-setup.sh --step 2"
-  fi
-
-  # Set anonymous read permissions on all Docker repos.
-  # Note: virtual repos cannot be added to permission targets (JFrog returns 400).
-  # Two targets are created:
-  #   anonymous-docker  — grants anonymous read on all docker repos (image pulls)
-  #   anonymous-user    — required for /v2/token to return 200 for anonymous Bearer
-  #                       token requests; without this containerd gets 401 on token
-  #                       fetch even when enabledForAnonymous=true
-  local docker_repos='["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay","ANY REMOTE"]'
+  local docker_repos='["ei-docker-local","ei-docker-dockerhub","ei-docker-ecr","ei-docker-ghcr","ei-docker-k8s","ei-docker-quay","ei-docker-vault-habana","ANY REMOTE"]'
   local perm_name perm_http perm_resp
   for perm_name in anonymous-docker anonymous-user; do
     info "Setting permission target: $perm_name ..."
@@ -333,7 +327,7 @@ perm = {
   'name': '${perm_name}',
   'includesPattern': '**',
   'excludesPattern': '',
-  'repositories': ['ei-docker-local','ei-docker-dockerhub','ei-docker-ecr','ei-docker-ghcr','ei-docker-k8s','ei-docker-quay','ANY REMOTE'],
+  'repositories': ['ei-docker-local','ei-docker-dockerhub','ei-docker-ecr','ei-docker-ghcr','ei-docker-k8s','ei-docker-quay','ei-docker-vault-habana','ANY REMOTE'],
   'principals': {'users': {'anonymous': ['r']}}
 }
 print(json.dumps(perm))
@@ -348,47 +342,8 @@ print(json.dumps(perm))
       success "$perm_name permissions set (HTTP $perm_http)"
     else
       error "$perm_name permission PUT returned HTTP $perm_http: $perm_resp"
-      error "Anonymous Docker pulls will NOT work until this is fixed."
-      return 1
     fi
   done
-
-  # Verify 1: token endpoint responds 200 for anonymous requests
-  # Verify the full two-step Docker V2 auth flow (mirrors exactly what containerd does):
-  #   Step 1: GET /v2/token anonymously → should return 200 with a token
-  #   Step 2: GET manifest with Bearer token → should return 200
-  # The bare manifest request returning 401 is the normal auth challenge, not an error.
-  info "Verifying anonymous token endpoint (/v2/token) ..."
-  local token_resp token_code anon_token
-  token_resp=$(curl -s \
-    "http://${JFROG_HOST}/v2/token?scope=repository%3Alibrary%2Fnginx%3Apull&service=${JFROG_HOST}" \
-    -w "\n%{http_code}")
-  token_code=$(echo "$token_resp" | tail -1)
-  anon_token=$(echo "$token_resp" | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || true)
-
-  if [[ "$token_code" == "200" ]]; then
-    success "Anonymous token endpoint OK (HTTP 200)"
-  else
-    warn "Anonymous token endpoint returned HTTP $token_code"
-    warn "Enable anonymous access in JFrog UI: http://${JFROG_HOST}/ui"
-    warn "  Admin → Security → Settings → Allow Anonymous Access → ON"
-  fi
-
-  # Step 2: use the anonymous token to fetch the manifest
-  if [[ -n "$anon_token" ]]; then
-    info "Verifying end-to-end anonymous pull flow (token → manifest) ..."
-    local flow_code
-    flow_code=$(curl -s -o /dev/null -w "%{http_code}" \
-      -H "Authorization: Bearer $anon_token" \
-      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-      "http://${JFROG_HOST}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
-    if [[ "$flow_code" == "200" ]]; then
-      success "End-to-end anonymous pull flow OK — containerd mirror pulls will work"
-    else
-      warn "Manifest with anonymous token returned HTTP $flow_code"
-      warn "Permission targets may not be applied yet — check anonymous-docker and anonymous-user targets in JFrog UI"
-    fi
-  fi
 
   success "Step 2 complete — anonymous access enabled"
 }
@@ -400,18 +355,12 @@ step_3a() {
   step_hdr "3a - Docker Images"
   local dest_repo="ei-docker-local"
   local -a skopeo_dest_flags=(--dest-tls-verify=false --dest-creds "$JFROG_CREDS")
-  # Copy only linux/amd64 manifest — skips attestation/in-toto layers that
-  # older skopeo versions cannot handle when using --all.
   local -a skopeo_base=(--src-tls-verify=false --override-arch amd64 --override-os linux)
 
   # Format: "source_image|dest_path_in_ei-docker-local"
-  # busybox:1.28 is no longer available via Docker Hub v2 API — copy latest and push as 1.28
-  # pause:3.9 is correct for k8s v1.30.4 (3.10 is for k8s 1.31+)
   local images=(
     # ── ECR ──────────────────────────────────────────────────────────────────
-    "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.10.2|q9t5s3a7/vllm-cpu-release-repo:v0.10.2"
     "public.ecr.aws/bitnami/minio:2024.11.7-debian-12-r0|bitnami/minio:2024.11.7-debian-12-r0"
-    # minio-client (mc) is bundled inside the minio server image — no separate image needed
 
     # ── GHCR ─────────────────────────────────────────────────────────────────
     "ghcr.io/huggingface/text-generation-inference:2.4.0-intel-cpu|huggingface/text-generation-inference:2.4.0-intel-cpu"
@@ -420,8 +369,19 @@ step_3a() {
     "ghcr.io/containers/nri-plugins/nri-resource-policy-balloons:v0.12.2|containers/nri-plugins/nri-resource-policy-balloons:v0.12.2"
     "ghcr.io/containers/nri-plugins/nri-config-manager:v0.12.2|containers/nri-plugins/nri-config-manager:v0.12.2"
 
+    # ── GHCR: Gaudi inference images ─────────────────────────────────────────
+    # tgi-gaudi uses tag "latest" in gaudi-values.yaml — pin to a specific tag
+    # before airgap deployment to avoid drift. Update tag here if upgrading TGI.
+    "ghcr.io/huggingface/tgi-gaudi:latest|huggingface/tgi-gaudi:latest"
+    # TEI and TEI-Rerank both use hpu-1.7 (core/helm-charts/tei/gaudi-values.yaml
+    # and core/helm-charts/teirerank/gaudi-values.yaml)
+    "ghcr.io/huggingface/text-embeddings-inference:hpu-1.7|huggingface/text-embeddings-inference:hpu-1.7"
+
     # ── Docker Hub ────────────────────────────────────────────────────────────
-    "docker.io/bitnami/minio:2024.12.18|bitnami/minio:2024.12.18"           # Langfuse minio chart (14.10.5) — docker.io version required by GenAI Gateway deployment
+    # Gaudi LLM serving image (core/helm-charts/vllm/gaudi-values.yaml and gaudi3-values.yaml)
+    "docker.io/opea/vllm-gaudi:1.22.0|opea/vllm-gaudi:1.22.0"
+
+    "docker.io/bitnami/minio:2024.12.18|bitnami/minio:2024.12.18"           # Langfuse minio chart (14.10.5)
     "docker.io/langfuse/langfuse:3.106.1|langfuse/langfuse:3.106.1"
     "docker.io/langfuse/langfuse-worker:3.106.1|langfuse/langfuse-worker:3.106.1"
     "docker.io/bitnamilegacy/keycloak:25.0.2-debian-12-r2|bitnamilegacy/keycloak:25.0.2-debian-12-r2"
@@ -434,27 +394,19 @@ step_3a() {
     "docker.io/bitnamilegacy/os-shell:12-debian-12-r48|bitnamilegacy/os-shell:12-debian-12-r48"
     "docker.io/bitnamilegacy/etcd:3.5.10-debian-11-r2|bitnamilegacy/etcd:3.5.10-debian-11-r2"
     "docker.io/apache/apisix:3.9.1-debian|apache/apisix:3.9.1-debian"
-    "docker.io/kubernetesui/dashboard:v2.7.0|kubernetesui/dashboard:v2.7.0"
-    "docker.io/kubernetesui/metrics-scraper:v1.0.8|kubernetesui/metrics-scraper:v1.0.8"
     "docker.io/library/nginx:1.25.2-alpine|library/nginx:1.25.2-alpine"
     "docker.io/library/ubuntu:22.04|library/ubuntu:22.04"
-    "docker.io/library/registry:2.8.1|library/registry:2.8.1"
-    "docker.io/openvino/model_server:2025.4|openvino/model_server:2025.4"
     "docker.io/rancher/local-path-provisioner:v0.0.24|rancher/local-path-provisioner:v0.0.24"
-    "docker.io/library/busybox:latest|library/busybox:1.28"    # 1.28 manifest no longer in Hub v2 API — copy latest, push as 1.28
-    "docker.io/library/busybox:latest|library/busybox:latest"  # local-path provisioner helper pod uses busybox:latest
-    "docker.io/library/busybox:latest|library/busybox:1.36"    # genai-gateway init container uses busybox:1.36
-    "docker.io/curlimages/curl:latest|curlimages/curl:latest"  # model registration job
+    "docker.io/library/busybox:latest|library/busybox:1.28"   # genai-gateway init container — 1.28 manifest not in Hub v2 API, copy latest as 1.28
+    "docker.io/library/busybox:latest|library/busybox:latest" # local-path-provisioner helper
+    "docker.io/curlimages/curl:latest|curlimages/curl:latest" # model registration job
+    "docker.io/openvino/model_server:2025.4|openvino/model_server:2025.4"
 
     # ── registry.k8s.io ───────────────────────────────────────────────────────
-    # Dest path must NOT include registry.k8s.io/ prefix.
-    # containerd mirror with override_path=true strips the registry hostname and
-    # appends only the image path, so the request arrives as:
-    #   /v2/ei-docker-virtual/coredns/coredns/manifests/v1.11.3  (no prefix)
-    # JFrog remote repos (ei-docker-k8s) also store images without the registry prefix.
+    # Dest path must NOT include registry.k8s.io/ prefix — override_path=true in
+    # containerd mirror config appends the image path as-is after /v2/ei-docker-virtual
     "registry.k8s.io/ingress-nginx/controller:v1.12.2|ingress-nginx/controller:v1.12.2"
-    # kube-webhook-certgen is handled via precache_via_remote below (skopeo --all fails on in-toto attestation layers)
-    # "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.3|ingress-nginx/kube-webhook-certgen:v1.5.3"
+    # kube-webhook-certgen handled via precache_via_remote (skopeo fails on in-toto attestation layers)
     "registry.k8s.io/pause:3.9|pause:3.9"
     "registry.k8s.io/pause:3.10|pause:3.10"
     "registry.k8s.io/etcd:3.5.12-0|etcd:3.5.12-0"
@@ -484,8 +436,6 @@ step_3a() {
     local dest_path="${entry##*|}"
     info "Copying $src -> $dest_repo/$dest_path"
 
-    # Skip if manifest already exists in JFrog — avoids Docker Hub rate limits on re-runs.
-    # Extract image name and tag from dest_path (e.g. "library/nginx:1.25.2-alpine")
     local dest_image="${dest_path%:*}" dest_tag="${dest_path##*:}"
     local existing_code
     existing_code=$(curl -s -u "$JFROG_CREDS" \
@@ -514,7 +464,7 @@ step_3a() {
     fi
   done
 
-  # apisix-ingress-controller requires Docker Hub credentials (rate-limited / auth required)
+  # apisix-ingress-controller — requires Docker Hub credentials
   if [[ -n "$DOCKERHUB_USER" && -n "$DOCKERHUB_PASS" ]]; then
     local apisix_ic_code
     apisix_ic_code=$(curl -s -u "$JFROG_CREDS" \
@@ -541,31 +491,156 @@ step_3a() {
     warn "Skipping apisix-ingress-controller:1.8.0 — pass --dockerhub-user and --dockerhub-pass"
   fi
 
+  # vault.habana.ai metric exporter — requires Habana credentials
+  # Image: vault.habana.ai/gaudi-metric-exporter/metric-exporter:1.20.1-97
+  # (from core/helm-charts/observability/habana-exporter/habana-metrics.yml)
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    local metric_code
+    metric_code=$(curl -s -u "$JFROG_CREDS" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      -o /dev/null -w "%{http_code}" \
+      "http://${JFROG_HOST}/v2/${dest_repo}/gaudi-metric-exporter/metric-exporter/manifests/1.20.1-97")
+    if [[ "$metric_code" == "200" ]]; then
+      info "Already in JFrog — skipping: metric-exporter:1.20.1-97"
+      copied=$((copied+1))
+    else
+      info "Copying vault.habana.ai/gaudi-metric-exporter/metric-exporter:1.20.1-97 ..."
+      if run skopeo copy "${skopeo_base[@]}" \
+          --src-creds "$HABANA_USER:$HABANA_PASS" \
+          "${skopeo_dest_flags[@]}" \
+          "docker://vault.habana.ai/gaudi-metric-exporter/metric-exporter:1.20.1-97" \
+          "docker://$JFROG_HOST/$dest_repo/gaudi-metric-exporter/metric-exporter:1.20.1-97"; then
+        copied=$((copied+1))
+      else
+        warn "Failed: metric-exporter:1.20.1-97"
+        failed=$((failed+1))
+        fail_list+=("vault.habana.ai/gaudi-metric-exporter/metric-exporter:1.20.1-97")
+      fi
+    fi
+  else
+    warn "Skipping metric-exporter:1.20.1-97 — pass --habana-user and --habana-pass"
+    warn "  To copy manually after obtaining credentials:"
+    warn "  skopeo copy --src-creds <user>:<pass> --dest-tls-verify=false --dest-creds $JFROG_CREDS \\"
+    warn "    docker://vault.habana.ai/gaudi-metric-exporter/metric-exporter:1.20.1-97 \\"
+    warn "    docker://$JFROG_HOST/$dest_repo/gaudi-metric-exporter/metric-exporter:1.20.1-97"
+  fi
+
   success "3a complete: copied=$copied  failed=$failed"
   if [[ $failed -gt 0 ]]; then
     warn "Failed images:"; for img in "${fail_list[@]}"; do warn "  $img"; done
   fi
 
-  # kube-webhook-certgen must be cached via the remote repo (not skopeo) because the
-  # ingress-nginx chart pulls it by manifest-list digest (sha256:2cf4...). skopeo with
-  # --override-arch produces a single-arch manifest with a different digest, causing 404.
-  # precache_via_remote fetches by tag through JFrog's remote, which caches the original
-  # multi-arch manifest list with its original digest intact.
+  # kube-webhook-certgen via remote (skopeo fails on in-toto attestation layers)
   precache_via_remote "ei-docker-k8s" "ingress-nginx/kube-webhook-certgen" "v1.5.3"
 
-  # Verify nginx is properly cached — must use Docker Accept headers; plain curl returns 404 even if cached
-  info "Verifying nginx:1.25.2-alpine manifest is accessible in JFrog..."
-  local http_code
-  http_code=$(curl -s -u "$JFROG_CREDS" \
-    -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-    -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
-    -o /dev/null -w "%{http_code}" \
-    "${JFROG_URL%/artifactory}/v2/ei-docker-virtual/library/nginx/manifests/1.25.2-alpine")
-  if [[ "$http_code" == "200" ]]; then
-    success "nginx:1.25.2-alpine verified in JFrog (HTTP $http_code)"
-  else
-    warn "nginx manifest check returned HTTP $http_code — expected 200; image may not be cached correctly"
+  # Pre-cache observability stack images extracted from kube-prometheus-stack chart
+  precache_observability_images
+}
+
+# Pre-cache all images used by kube-prometheus-stack by rendering the chart
+# with helm template and extracting every image reference.
+precache_observability_images() {
+  info "Pre-caching kube-prometheus-stack images (chart v72.5.1)..."
+
+  local obsdir="$WORKDIR/obs-precache"
+  mkdir -p "$obsdir"
+
+  # Pull kube-prometheus-stack chart tarball without uploading (already done in 3b)
+  if [[ ! -f "$obsdir/kube-prometheus-stack-72.5.1.tgz" ]]; then
+    run helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+    run helm repo update prometheus-community
+    run helm pull prometheus-community/kube-prometheus-stack --version 72.5.1 --destination "$obsdir"
   fi
+
+  local chart_tgz="$obsdir/kube-prometheus-stack-72.5.1.tgz"
+  if [[ ! -f "$chart_tgz" ]]; then
+    warn "kube-prometheus-stack tarball not found — skipping observability image pre-cache"
+    return 0
+  fi
+
+  # Render all manifests and extract unique image references
+  info "Extracting images from helm template output..."
+  local image_list
+  image_list=$(helm template obs-pre "$chart_tgz" 2>/dev/null \
+    | grep -oE 'image: "[^"]+"' \
+    | sed 's/image: "//;s/"//' \
+    | sort -u || true)
+
+  # Also catch unquoted image: entries
+  image_list+=$'\n'$(helm template obs-pre "$chart_tgz" 2>/dev/null \
+    | grep -oE 'image: [^" ][^ ]+' \
+    | sed 's/image: //' \
+    | sort -u || true)
+
+  if [[ -z "$image_list" ]]; then
+    warn "No images extracted from kube-prometheus-stack — skipping observability pre-cache"
+    return 0
+  fi
+
+  local obs_copied=0 obs_failed=0
+  while IFS= read -r img; do
+    [[ -z "$img" || "$img" == "null" ]] && continue
+
+    # Determine JFrog remote repo based on registry prefix
+    local remote_repo src_img dest_path
+    if [[ "$img" == quay.io/* ]]; then
+      remote_repo="ei-docker-quay"
+      dest_path="${img#quay.io/}"
+    elif [[ "$img" == registry.k8s.io/* ]]; then
+      remote_repo="ei-docker-k8s"
+      dest_path="${img#registry.k8s.io/}"
+    elif [[ "$img" == docker.io/* || "$img" != */* || "$img" == *:* && "$img" != */*:* ]]; then
+      remote_repo="ei-docker-dockerhub"
+      dest_path="${img#docker.io/}"
+    elif [[ "$img" == ghcr.io/* ]]; then
+      remote_repo="ei-docker-ghcr"
+      dest_path="${img#ghcr.io/}"
+    else
+      remote_repo="ei-docker-dockerhub"
+      dest_path="$img"
+    fi
+
+    local img_name="${dest_path%:*}" img_tag="${dest_path##*:}"
+    [[ "$img_name" == "$dest_path" ]] && img_tag="latest"
+
+    local check_code
+    check_code=$(curl -s -u "$JFROG_CREDS" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+      -o /dev/null -w "%{http_code}" \
+      "http://${JFROG_HOST}/v2/ei-docker-local/${img_name}/manifests/${img_tag}")
+
+    if [[ "$check_code" == "200" ]]; then
+      info "Already cached — skipping: $img"
+      obs_copied=$((obs_copied+1))
+      continue
+    fi
+
+    info "Pre-caching observability image: $img via $remote_repo"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
+      -H "Content-Type: application/json" -d '{"offline":false}' > /dev/null 2>&1
+
+    if skopeo copy \
+        --src-tls-verify=false --src-creds "$JFROG_CREDS" \
+        --override-arch amd64 --override-os linux \
+        "docker://${JFROG_HOST}/${remote_repo}/${dest_path}" \
+        "dir:${tmpdir}" 2>&1 | sed 's/^/    /'; then
+      obs_copied=$((obs_copied+1))
+    else
+      warn "Could not pre-cache: $img"
+      obs_failed=$((obs_failed+1))
+    fi
+
+    curl -su "$JFROG_CREDS" -X POST "$JFROG_URL/api/repositories/$remote_repo" \
+      -H "Content-Type: application/json" -d '{"offline":true}' > /dev/null 2>&1
+
+    rm -rf "$tmpdir"
+  done <<< "$image_list"
+
+  success "Observability images: cached=$obs_copied failed=$obs_failed"
 }
 
 # ---------------------------------------------------------------------------
@@ -577,10 +652,18 @@ step_3b() {
   mkdir -p "$helmdir"
   cd "$helmdir"
 
+  if echo "$JFROG_URL" | grep -qE "localhost|127\.0\.0\.1"; then
+    error "JFROG_URL contains localhost — index.yaml would have URLs VM2 cannot reach."
+    error "Re-run with: --jfrog-url http://<VM1-IP>:8082/artifactory"
+    return 1
+  fi
+
+  # Base infrastructure charts
   run helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
   run helm repo add langfuse https://langfuse.github.io/langfuse-k8s
   run helm repo add apisix https://charts.apiseven.com
   run helm repo add nri-plugins https://containers.github.io/nri-plugins
+  run helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
   run helm repo update
 
   run helm pull ingress-nginx/ingress-nginx --version 4.12.2     --destination .
@@ -588,6 +671,10 @@ step_3b() {
   run helm pull apisix/apisix               --version 2.8.1       --destination .
   run helm pull nri-plugins/nri-resource-policy-balloons --version v0.12.2 --destination .
 
+  # Observability stack — kube-prometheus-stack (deploy-observability.yml default: 72.5.1)
+  run helm pull prometheus-community/kube-prometheus-stack --version 72.5.1 --destination .
+
+  # Bitnami OCI charts (GenAI Gateway + Keycloak dependencies)
   run helm pull oci://registry-1.docker.io/bitnamicharts/keycloak   --version 22.1.0  --destination .
   run helm pull oci://registry-1.docker.io/bitnamicharts/postgresql --version 16.7.4  --destination .
   run helm pull oci://registry-1.docker.io/bitnamicharts/redis      --version 21.1.3  --destination .
@@ -595,21 +682,30 @@ step_3b() {
   run helm pull oci://registry-1.docker.io/bitnamicharts/minio      --version 14.10.5 --destination .
   run helm pull oci://registry-1.docker.io/bitnamicharts/valkey     --version 2.2.4   --destination .
 
+  # Habana AI Operator chart from vault.habana.ai
+  # Version matches gaudi2_operator / gaudi3_operator in inference-metadata.cfg
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    info "Pulling habana-ai-operator chart (version: $GAUDI_OPERATOR_VERSION) from vault.habana.ai ..."
+    run helm repo add gaudi-helm \
+      https://vault.habana.ai/artifactory/api/helm/gaudi-helm \
+      --username "$HABANA_USER" --password "$HABANA_PASS" --force-update
+    run helm repo update gaudi-helm
+    run helm pull gaudi-helm/habana-ai-operator --version "$GAUDI_OPERATOR_VERSION" --destination .
+  else
+    warn "Skipping habana-ai-operator chart pull — pass --habana-user and --habana-pass"
+    warn "  To pull manually:"
+    warn "  helm repo add gaudi-helm https://vault.habana.ai/artifactory/api/helm/gaudi-helm \\"
+    warn "    --username <user> --password <pass>"
+    warn "  helm pull gaudi-helm/habana-ai-operator --version $GAUDI_OPERATOR_VERSION --destination ."
+  fi
+
+  # Upload all pulled charts to JFrog ei-helm-local
   for chart in *.tgz; do
     [[ -f "$chart" ]] || continue
     jfrog_upload "$chart" "ei-helm-local/$chart"
   done
 
-  # Generate and upload index.yaml — JFrog HelmOCI repos do not auto-generate it.
-  # IMPORTANT: index.yaml URLs must use the externally-accessible IP (not localhost),
-  # because VM2 downloads charts using these URLs. If JFROG_URL contains localhost/127.0.0.1,
-  # helm on VM2 will fail with "connection refused" when trying to download chart tarballs.
-  # Always run this script with --jfrog-url http://<VM1-IP>:8082/artifactory.
-  if echo "$JFROG_URL" | grep -qE "localhost|127\.0\.0\.1"; then
-    error "JFROG_URL contains '$JFROG_URL' — index.yaml would have localhost URLs that VM2 cannot reach."
-    error "Re-run with: --jfrog-url http://<VM1-IP>:8082/artifactory"
-    return 1
-  fi
+  # Generate and upload index.yaml — JFrog HelmOCI repos do not auto-generate it
   run helm repo index . --url "$JFROG_URL/ei-helm-local"
   jfrog_upload "index.yaml" "ei-helm-local/index.yaml"
 
@@ -635,7 +731,6 @@ step_3c() {
     durationpy websocket-client cffi pycparser markupsafe \
     -d "$wheelsdir"
 
-  # Download cryptography 46.x separately — cannot mix with 44.x in one pip download call
   run pip3 download cryptography==46.0.7 -d "$wheelsdir"
 
   for pkg in "$wheelsdir"/*.whl "$wheelsdir"/*.tar.gz; do
@@ -663,7 +758,6 @@ step_3d() {
     return 1
   fi
 
-  # Uploaded as generic 'pip.whl' — deployment script reads version from WHEEL metadata inside the zip
   jfrog_upload "$whl" "ei-generic-binaries/pip.whl"
   success "3d complete"
 }
@@ -682,14 +776,12 @@ step_3e() {
     ansible.posix \
     -p "$colldir"
 
-  # setup-env.sh looks for <namespace>-<name>-latest.tar.gz
   local kube_core_tgz community_general_tgz ansible_posix_tgz
   kube_core_tgz=$(ls "$colldir"/kubernetes-core-*.tar.gz 2>/dev/null | head -1)
   community_general_tgz=$(ls "$colldir"/community-general-*.tar.gz 2>/dev/null | head -1)
   ansible_posix_tgz=$(ls "$colldir"/ansible-posix-*.tar.gz 2>/dev/null | head -1)
 
   if [[ -n "$kube_core_tgz" ]]; then
-    # Upload both versioned name (matches JFrog listing) and -latest (what setup-env.sh looks for)
     jfrog_upload "$kube_core_tgz" "ei-generic-binaries/ansible-collections/kubernetes-core-6.3.0.tar.gz"
     jfrog_upload "$kube_core_tgz" "ei-generic-binaries/ansible-collections/kubernetes-core-latest.tar.gz"
   else
@@ -709,7 +801,6 @@ step_3e() {
     warn "ansible.posix tarball not found — skipping"
   fi
 
-  # community.kubernetes is the legacy name — upload same tarball as community-kubernetes-2.0.1
   run ansible-galaxy collection download community.kubernetes:2.0.1 -p "$colldir" || true
   local community_kubernetes_tgz
   community_kubernetes_tgz=$(ls "$colldir"/community-kubernetes-*.tar.gz 2>/dev/null | head -1)
@@ -724,31 +815,24 @@ step_3e() {
 
 # ---------------------------------------------------------------------------
 # Step 3f — apt .deb Files
-#   Part 1: Download jq .deb files and upload to ei-generic-binaries/apt-debs/
-#           (installed via dpkg on VM2 by the inference-tools role)
-#   Part 2: Pre-cache all required apt packages in JFrog by routing VM1 apt
-#           through ei-debian-virtual so JFrog fetches and caches each package
-#           and its dependencies before going Offline.
-#           Includes: conntrack socat ipset ebtables nfs-common ipvsadm unzip
-#                     python3-pip (required by inference-tools role on VM2)
+#   Part 1: jq .deb files for inference-tools role (dpkg path)
+#   Part 2: Pre-cache Kubespray apt packages in JFrog Debian remote
+#   Part 3: Download Habana runtime .deb packages
+#           habanalabs-container-runtime=1.18.0-524 (deploy-habana-ai-operator.yml)
+#           habanalabs-firmware-odm=1.18.0-524      (gaudi-firmware-driver-updater.sh)
 # ---------------------------------------------------------------------------
 step_3f() {
-  step_hdr "3f - apt .deb Files"
+  step_hdr "3f - apt .deb Files (base + Habana runtime)"
   local debdir="$WORKDIR/apt-debs"
   mkdir -p "$debdir"
 
   # ── Part 1: jq via dpkg path ─────────────────────────────────────────────
-  # apt-get download fails if the exact installed version is no longer in the
-  # configured apt sources (e.g. sources.list was modified by a previous run
-  # or the version was removed from the mirror). Run apt-get update first,
-  # then download; if it still fails, warn and skip — the debs can be
-  # uploaded manually to ei-generic-binaries/apt-debs/ later.
   info "Downloading jq, libjq1, libonig5..."
   cd "$debdir"
   sudo apt-get update -qq 2>/dev/null || true
   if ! run sudo apt-get download jq libjq1 libonig5; then
     warn "apt-get download for jq/libjq1/libonig5 failed — debs not uploaded to JFrog"
-    warn "Upload them manually: sudo apt-get download jq libjq1 libonig5 && curl -u admin:password -T <deb> http://<VM1>:8082/artifactory/ei-generic-binaries/apt-debs/<deb>"
+    warn "Upload manually: sudo apt-get download jq libjq1 libonig5 && curl -u $JFROG_CREDS -T <deb> $JFROG_URL/ei-generic-binaries/apt-debs/<deb>"
   fi
   for deb in *.deb; do
     [[ -f "$deb" ]] || continue
@@ -757,12 +841,7 @@ step_3f() {
   cd - >/dev/null
 
   # ── Part 2: Kubespray apt packages via JFrog Debian remote ───────────────
-  # Kubespray kubernetes/preinstall requires these packages on VM2.
-  # VM2 apt is pointed at JFrog in airgap mode, so JFrog must have them
-  # cached before going Offline. Route VM1 apt through JFrog here to
-  # trigger fetching and caching of each package and its dependencies.
   info "Pre-caching Kubespray apt packages in JFrog..."
-
   local http_code
   http_code=$(curl -su "$JFROG_CREDS" -X POST \
     "$JFROG_URL/api/repositories/ei-debian-ubuntu" \
@@ -771,65 +850,88 @@ step_3f() {
     -o /dev/null -w "%{http_code}")
   if [[ "$http_code" != "200" ]]; then
     warn "Could not set ei-debian-ubuntu Online (HTTP $http_code) — skipping Kubespray apt pre-cache"
-    success "3f complete (jq packages only)"
-    return 0
-  fi
-  info "ei-debian-ubuntu set to Online"
-
-  local jfrog_src="http://${JFROG_CREDS}@${JFROG_HOST}/artifactory/ei-debian-virtual"
-  local jfrog_list="/etc/apt/sources.list.d/jfrog-precache.list"
-
-  # Write sources file using two separate tee calls to avoid shell line-wrap issues
-  echo "deb [trusted=yes] $jfrog_src jammy main restricted universe multiverse" \
-    | sudo tee "$jfrog_list" > /dev/null
-  echo "deb [trusted=yes] $jfrog_src jammy-updates main restricted universe multiverse" \
-    | sudo tee -a "$jfrog_list" > /dev/null
-
-  # Disable default Ubuntu sources so apt only talks to JFrog
-  sudo mv /etc/apt/sources.list /etc/apt/sources.list.bak
-
-  local precache_ok=true
-  if run sudo apt-get update; then
-    # Clear any locally cached .deb files so apt must fetch from JFrog
-    # (if the package is already in /var/cache/apt/archives, apt skips the
-    # download entirely and JFrog never sees the request)
-    sudo rm -f /var/cache/apt/archives/unzip*.deb \
-               /var/cache/apt/archives/conntrack*.deb \
-               /var/cache/apt/archives/socat*.deb \
-               /var/cache/apt/archives/ipset*.deb \
-               /var/cache/apt/archives/ebtables*.deb \
-               /var/cache/apt/archives/nfs-common*.deb \
-               /var/cache/apt/archives/apt-transport-https*.deb \
-               /var/cache/apt/archives/ipvsadm*.deb
-
-    run sudo apt-get install --download-only -y \
-      conntrack socat ipset ebtables nfs-common apt-transport-https ipvsadm \
-      python3-pip \
-      || { warn "Some packages may not have been cached"; precache_ok=false; }
-
-    # unzip requires --reinstall because it is typically already installed
-    run sudo apt-get install --download-only --reinstall -y unzip \
-      || { warn "unzip may not have been cached"; precache_ok=false; }
   else
-    warn "apt-get update through JFrog failed — Kubespray packages may not be cached"
-    precache_ok=false
+    local jfrog_src="http://${JFROG_CREDS}@${JFROG_HOST}/artifactory/ei-debian-virtual"
+    local jfrog_list="/etc/apt/sources.list.d/jfrog-precache.list"
+    echo "deb [trusted=yes] $jfrog_src jammy main restricted universe multiverse" \
+      | sudo tee "$jfrog_list" > /dev/null
+    echo "deb [trusted=yes] $jfrog_src jammy-updates main restricted universe multiverse" \
+      | sudo tee -a "$jfrog_list" > /dev/null
+    sudo mv /etc/apt/sources.list /etc/apt/sources.list.bak
+
+    if run sudo apt-get update; then
+      sudo rm -f /var/cache/apt/archives/unzip*.deb \
+                 /var/cache/apt/archives/conntrack*.deb \
+                 /var/cache/apt/archives/socat*.deb \
+                 /var/cache/apt/archives/ipset*.deb \
+                 /var/cache/apt/archives/ebtables*.deb \
+                 /var/cache/apt/archives/nfs-common*.deb \
+                 /var/cache/apt/archives/apt-transport-https*.deb \
+                 /var/cache/apt/archives/ipvsadm*.deb
+      run sudo apt-get install --download-only -y \
+        conntrack socat ipset ebtables nfs-common apt-transport-https ipvsadm \
+        python3-pip \
+        || warn "Some Kubespray packages may not have been cached"
+      run sudo apt-get install --download-only --reinstall -y unzip \
+        || warn "unzip may not have been cached"
+    else
+      warn "apt-get update through JFrog failed"
+    fi
+
+    sudo mv /etc/apt/sources.list.bak /etc/apt/sources.list
+    sudo rm -f "$jfrog_list"
+    curl -su "$JFROG_CREDS" -X POST \
+      "$JFROG_URL/api/repositories/ei-debian-ubuntu" \
+      -H "Content-Type: application/json" \
+      -d '{"offline":true}' > /dev/null 2>&1
+    info "ei-debian-ubuntu set back to Offline"
   fi
 
-  sudo mv /etc/apt/sources.list.bak /etc/apt/sources.list
-  sudo rm -f "$jfrog_list"
+  # ── Part 3: Habana runtime packages ──────────────────────────────────────
+  # habanalabs-container-runtime and habanalabs-firmware-odm are served from
+  # the Habana APT repository (configured by habanalabs-installer.sh).
+  # In airgap mode these must be pre-downloaded and uploaded to JFrog.
+  #
+  # Version: 1.18.0-524
+  #   - habanalabs-container-runtime=1.18.0-524 (deploy-habana-ai-operator.yml line 89)
+  #   - habanalabs-firmware-odm=1.18.0-524      (gaudi-firmware-driver-updater.sh line 117)
+  info "Downloading Habana runtime .deb packages (version 1.18.0-524)..."
+  info "NOTE: Habana packages require the Habana APT repo to be configured."
+  info "      If not already set up, run: bash habanalabs-installer.sh install --type base -y"
+  info "      This configures /etc/apt/sources.list.d/artifactory.list for vault.habana.ai"
 
-  # Set ei-debian-ubuntu back to Offline
-  curl -su "$JFROG_CREDS" -X POST \
-    "$JFROG_URL/api/repositories/ei-debian-ubuntu" \
-    -H "Content-Type: application/json" \
-    -d '{"offline":true}' > /dev/null 2>&1
-  info "ei-debian-ubuntu set back to Offline"
+  local habana_debdir="$WORKDIR/habana-debs"
+  mkdir -p "$habana_debdir"
+  cd "$habana_debdir"
 
-  if $precache_ok; then
-    success "3f complete — jq debs uploaded, Kubespray apt packages cached in JFrog"
+  # Check if Habana APT repo is configured
+  if apt-cache policy habanalabs-container-runtime 2>/dev/null | grep -q "vault.habana.ai"; then
+    info "Habana APT repo detected — downloading packages..."
+    if run sudo apt-get download \
+        habanalabs-container-runtime=1.18.0-524 \
+        habanalabs-firmware-odm=1.18.0-524; then
+      for deb in *.deb; do
+        [[ -f "$deb" ]] || continue
+        jfrog_upload "$deb" "ei-generic-binaries/apt-debs/$deb"
+        info "Uploaded: $deb"
+      done
+      success "Habana .deb packages uploaded to JFrog"
+    else
+      warn "apt-get download for Habana packages failed — upload manually:"
+      warn "  sudo apt-get download habanalabs-container-runtime=1.18.0-524 habanalabs-firmware-odm=1.18.0-524"
+      warn "  curl -u $JFROG_CREDS -T <deb> $JFROG_URL/ei-generic-binaries/apt-debs/<deb>"
+    fi
   else
-    warn "3f finished with warnings — some apt packages may be missing from JFrog cache"
+    warn "Habana APT repo not configured on VM1 — skipping Habana .deb download"
+    warn "To pre-cache Habana packages:"
+    warn "  1. Run: wget https://vault.habana.ai/artifactory/gaudi-installer/1.18.0/habanalabs-installer.sh"
+    warn "  2. Run: bash habanalabs-installer.sh install --type base -y"
+    warn "  3. Re-run: ./jfrog-setup-gaudi.sh --step 3f"
+    warn "  OR download debs directly from vault.habana.ai and upload to ei-generic-binaries/apt-debs/"
   fi
+
+  cd - >/dev/null
+  success "3f complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -858,7 +960,6 @@ step_3g() {
   jfrog_upload "etcd-v3.5.16-linux-amd64.tar.gz" \
     "ei-generic-binaries/github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz"
 
-  # v3.28.1 — used by kubespray v2.27.0 / k8s v1.30.4
   run curl -fsSL -o "calicoctl-linux-amd64-v3.28.1" \
     "https://github.com/projectcalico/calico/releases/download/v3.28.1/calicoctl-linux-amd64"
   jfrog_upload "calicoctl-linux-amd64-v3.28.1" \
@@ -868,7 +969,6 @@ step_3g() {
   jfrog_upload "calico-v3.28.1.tar.gz" \
     "ei-generic-binaries/github.com/projectcalico/calico/archive/v3.28.1.tar.gz"
 
-  # v3.29.1 — newer version (pre-cache for future use)
   run curl -fsSLO "https://github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"
   jfrog_upload "calicoctl-linux-amd64" \
     "ei-generic-binaries/github.com/projectcalico/calico/releases/download/v3.29.1/calicoctl-linux-amd64"
@@ -892,7 +992,6 @@ step_3g() {
   run curl -fsSLO "https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz"
   jfrog_upload "helm-v3.15.4-linux-amd64.tar.gz" \
     "ei-generic-binaries/get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz"
-  # Also upload the bare helm binary (extracted from tarball)
   run tar -xzf "helm-v3.15.4-linux-amd64.tar.gz" "linux-amd64/helm"
   run mv "linux-amd64/helm" "helm"
   jfrog_upload "helm" "ei-generic-binaries/helm"
@@ -900,16 +999,13 @@ step_3g() {
   run curl -fsSL -o "get-pip.py" "https://bootstrap.pypa.io/get-pip.py"
   jfrog_upload "get-pip.py" "ei-generic-binaries/get-pip.py"
 
-  # kubectl is already uploaded under dl.k8s.io path — also upload as bare binary at root
   jfrog_upload "kubectl" "ei-generic-binaries/kubectl"
 
-  # yq
   run curl -fsSL -o "yq" \
     "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64"
   run chmod +x yq
   jfrog_upload "yq" "ei-generic-binaries/yq"
 
-  # kubectx + kubens
   run curl -fsSL -o "kubectx" \
     "https://github.com/ahmetb/kubectx/releases/download/v0.9.5/kubectx"
   run chmod +x kubectx
@@ -922,141 +1018,6 @@ step_3g() {
 
   success "3g complete"
   cd - >/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# Helper — upload a HuggingFace model to JFrog one file at a time
-#   $1 = HuggingFace repo ID  (e.g. meta-llama/Llama-3.1-8B-Instruct)
-#   $2 = JFrog destination folder name under ei-generic-models/
-#   $3 = local working directory
-# ---------------------------------------------------------------------------
-upload_hf_model() {
-  local hf_repo="$1"
-  local jfrog_folder="$2"
-  local modeldir="$3"
-
-  mkdir -p "$modeldir"
-  run pip3 install -q huggingface_hub
-
-  # Get the list of all files in the model repo without downloading anything
-  info "Fetching file list for $hf_repo..."
-  local file_list
-  file_list=$(python3 - <<PYEOF
-from huggingface_hub import list_repo_files
-for f in list_repo_files("$hf_repo", token="$HF_TOKEN"):
-    print(f)
-PYEOF
-)
-
-  # Download each file one at a time, upload to JFrog, then delete it.
-  # This keeps VM1 disk usage to one file at a time instead of the full model.
-  # Before downloading, check if the file already exists in JFrog and skip it.
-  # This makes reruns safe -- if the script fails halfway, it picks up where it left off.
-  info "Downloading and uploading model files one at a time..."
-  while IFS= read -r rel; do
-    [[ -z "$rel" ]] && continue
-    local localfile="$modeldir/$rel"
-    mkdir -p "$(dirname "$localfile")"
-
-    # Check if the file is already in JFrog -- skip if so
-    local http_code
-    http_code=$(curl -su "$JFROG_CREDS" \
-      -o /dev/null -w "%{http_code}" \
-      "$JFROG_URL/ei-generic-models/$jfrog_folder/$rel")
-    if [[ "$http_code" == "200" ]]; then
-      info "Already in JFrog, skipping: $rel"
-      continue
-    fi
-
-    info "Downloading $rel..."
-    python3 - <<PYEOF
-from huggingface_hub import hf_hub_download
-hf_hub_download(
-    repo_id="$hf_repo",
-    filename="$rel",
-    local_dir="$modeldir",
-    token="$HF_TOKEN"
-)
-PYEOF
-
-    jfrog_upload "$localfile" "ei-generic-models/$jfrog_folder/$rel"
-
-    info "Removing $rel from VM1 to free disk space..."
-    rm -f "$localfile"
-  done <<< "$file_list"
-
-  # Clean up the model directory including any leftover cache files
-  rm -rf "$modeldir"
-}
-
-# ---------------------------------------------------------------------------
-# Helper — patch JFrog file upload size limit to unlimited
-# ---------------------------------------------------------------------------
-set_jfrog_upload_limit_unlimited() {
-  info "Setting JFrog file upload limit to unlimited..."
-  local cfg_tmp
-  cfg_tmp=$(mktemp /tmp/jfrog-config-XXXXXX.xml)
-  curl -su "$JFROG_CREDS" \
-    "$JFROG_URL/api/system/configuration" > "$cfg_tmp"
-  if grep -q "fileUploadMaxSizeMb" "$cfg_tmp"; then
-    sed -i 's|<fileUploadMaxSizeMb>[0-9]*</fileUploadMaxSizeMb>|<fileUploadMaxSizeMb>0</fileUploadMaxSizeMb>|' "$cfg_tmp"
-    local http_code
-    http_code=$(curl -su "$JFROG_CREDS" -X POST \
-      "$JFROG_URL/api/system/configuration" \
-      -H "Content-Type: application/xml" \
-      --data-binary @"$cfg_tmp" \
-      -o /dev/null -w "%{http_code}")
-    if [[ "$http_code" == "200" ]]; then
-      success "File upload limit set to unlimited"
-    else
-      warn "Could not update file upload limit (HTTP $http_code) -- large files may fail"
-    fi
-  else
-    warn "fileUploadMaxSizeMb not found in config -- skipping limit patch"
-  fi
-  rm -f "$cfg_tmp"
-}
-
-# ---------------------------------------------------------------------------
-# Step 3i — Meta-Llama-3.1-8B-Instruct (optional)
-# ---------------------------------------------------------------------------
-step_3i() {
-  step_hdr "3i - LLM Model: Meta-Llama-3.1-8B-Instruct"
-
-  if [[ -z "$HF_TOKEN" ]]; then
-    warn "Skipping 3h: --hf-token not provided"
-    warn "Re-run with: --step 3i --hf-token hf_..."
-    return 0
-  fi
-
-  set_jfrog_upload_limit_unlimited
-  upload_hf_model \
-    "meta-llama/Llama-3.1-8B-Instruct" \
-    "Meta-Llama-3.1-8B-Instruct" \
-    "$WORKDIR/Llama-3.1-8B-Instruct"
-
-  success "3i complete"
-}
-
-# ---------------------------------------------------------------------------
-# Step 3j — Meta-Llama-3.2-3B-Instruct (optional)
-# ---------------------------------------------------------------------------
-step_3j() {
-  step_hdr "3j - LLM Model: Meta-Llama-3.2-3B-Instruct"
-
-  if [[ -z "$HF_TOKEN" ]]; then
-    warn "Skipping 3j: --hf-token not provided"
-    warn "Re-run with: --step 3j --hf-token hf_..."
-    return 0
-  fi
-
-  set_jfrog_upload_limit_unlimited
-  upload_hf_model \
-    "meta-llama/Llama-3.2-3B-Instruct" \
-    "Meta-Llama-3.2-3B-Instruct" \
-    "$WORKDIR/Llama-3.2-3B-Instruct"
-
-  success "3j complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -1081,6 +1042,163 @@ step_3h() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 3k — Habana Binaries
+#   - habanalabs-installer.sh  (used by gaudi-firmware-driver-updater.sh)
+#   - habana-k8s-device-plugin.yaml  (applied by deploy-habana-ai-operator.yml)
+# ---------------------------------------------------------------------------
+step_3k() {
+  step_hdr "3k - Habana Binaries"
+  local habanadir="$WORKDIR/habana-binaries"
+  mkdir -p "$habanadir"
+  cd "$habanadir"
+
+  # habanalabs-installer.sh
+  # Source: vault.habana.ai/artifactory/gaudi-installer/1.18.0/habanalabs-installer.sh
+  # Used by: gaudi-firmware-driver-updater.sh (line 68) to install Habana base components
+  info "Downloading habanalabs-installer.sh (version 1.18.0)..."
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    run curl -fsSL \
+      --user "$HABANA_USER:$HABANA_PASS" \
+      -o habanalabs-installer.sh \
+      "https://vault.habana.ai/artifactory/gaudi-installer/1.18.0/habanalabs-installer.sh"
+    jfrog_upload "habanalabs-installer.sh" \
+      "ei-generic-binaries/habana/habanalabs-installer-1.18.0.sh"
+    success "habanalabs-installer.sh uploaded"
+  else
+    warn "Skipping habanalabs-installer.sh — pass --habana-user and --habana-pass"
+    warn "  Download manually and upload:"
+    warn "  curl -u <user>:<pass> -o habanalabs-installer.sh \\"
+    warn "    https://vault.habana.ai/artifactory/gaudi-installer/1.18.0/habanalabs-installer.sh"
+    warn "  curl -u $JFROG_CREDS -T habanalabs-installer.sh \\"
+    warn "    $JFROG_URL/ei-generic-binaries/habana/habanalabs-installer-1.18.0.sh"
+  fi
+
+  # habana-k8s-device-plugin.yaml
+  # Source: vault.habana.ai/artifactory/docker-k8s-device-plugin/habana-k8s-device-plugin.yaml
+  # Applied by: deploy-habana-ai-operator.yml (line 121) via kubernetes.core.k8s src:
+  # In airgap mode this manifest must be served locally — upload to ei-generic-binaries
+  # and patch the playbook to use the JFrog URL instead of direct vault.habana.ai access.
+  info "Downloading habana-k8s-device-plugin.yaml ..."
+  if [[ -n "$HABANA_USER" && -n "$HABANA_PASS" ]]; then
+    run curl -fsSL \
+      --user "$HABANA_USER:$HABANA_PASS" \
+      -o habana-k8s-device-plugin.yaml \
+      "https://vault.habana.ai/artifactory/docker-k8s-device-plugin/habana-k8s-device-plugin.yaml"
+    jfrog_upload "habana-k8s-device-plugin.yaml" \
+      "ei-generic-binaries/habana/habana-k8s-device-plugin.yaml"
+    success "habana-k8s-device-plugin.yaml uploaded"
+    warn "ACTION REQUIRED: patch deploy-habana-ai-operator.yml to fetch device plugin from JFrog:"
+    warn "  Replace: src: https://vault.habana.ai/artifactory/docker-k8s-device-plugin/habana-k8s-device-plugin.yaml"
+    warn "  With:    src: http://<VM1-IP>:8082/artifactory/ei-generic-binaries/habana/habana-k8s-device-plugin.yaml"
+  else
+    warn "Skipping habana-k8s-device-plugin.yaml — pass --habana-user and --habana-pass"
+    warn "  Download manually and upload:"
+    warn "  curl -u <user>:<pass> -o habana-k8s-device-plugin.yaml \\"
+    warn "    https://vault.habana.ai/artifactory/docker-k8s-device-plugin/habana-k8s-device-plugin.yaml"
+    warn "  curl -u $JFROG_CREDS -T habana-k8s-device-plugin.yaml \\"
+    warn "    $JFROG_URL/ei-generic-binaries/habana/habana-k8s-device-plugin.yaml"
+  fi
+
+  success "3k complete"
+  cd - >/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Helper — upload a HuggingFace model to JFrog one file at a time
+# ---------------------------------------------------------------------------
+upload_hf_model() {
+  local hf_repo="$1" jfrog_folder="$2" modeldir="$3"
+  mkdir -p "$modeldir"
+  run pip3 install -q huggingface_hub
+
+  info "Fetching file list for $hf_repo..."
+  local file_list
+  file_list=$(python3 - <<PYEOF
+from huggingface_hub import list_repo_files
+for f in list_repo_files("$hf_repo", token="$HF_TOKEN"):
+    print(f)
+PYEOF
+)
+
+  info "Downloading and uploading model files one at a time..."
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    local localfile="$modeldir/$rel"
+    mkdir -p "$(dirname "$localfile")"
+
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" \
+      -o /dev/null -w "%{http_code}" \
+      "$JFROG_URL/ei-generic-models/$jfrog_folder/$rel")
+    if [[ "$http_code" == "200" ]]; then
+      info "Already in JFrog, skipping: $rel"
+      continue
+    fi
+
+    info "Downloading $rel..."
+    python3 - <<PYEOF
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id="$hf_repo", filename="$rel", local_dir="$modeldir", token="$HF_TOKEN")
+PYEOF
+
+    jfrog_upload "$localfile" "ei-generic-models/$jfrog_folder/$rel"
+    info "Removing $rel from VM1 to free disk space..."
+    rm -f "$localfile"
+  done <<< "$file_list"
+
+  rm -rf "$modeldir"
+}
+
+set_jfrog_upload_limit_unlimited() {
+  info "Setting JFrog file upload limit to unlimited..."
+  local cfg_tmp
+  cfg_tmp=$(mktemp /tmp/jfrog-config-XXXXXX.xml)
+  curl -su "$JFROG_CREDS" "$JFROG_URL/api/system/configuration" > "$cfg_tmp"
+  if grep -q "fileUploadMaxSizeMb" "$cfg_tmp"; then
+    sed -i 's|<fileUploadMaxSizeMb>[0-9]*</fileUploadMaxSizeMb>|<fileUploadMaxSizeMb>0</fileUploadMaxSizeMb>|' "$cfg_tmp"
+    local http_code
+    http_code=$(curl -su "$JFROG_CREDS" -X POST \
+      "$JFROG_URL/api/system/configuration" \
+      -H "Content-Type: application/xml" \
+      --data-binary @"$cfg_tmp" \
+      -o /dev/null -w "%{http_code}")
+    [[ "$http_code" == "200" ]] && success "File upload limit set to unlimited" \
+      || warn "Could not update file upload limit (HTTP $http_code)"
+  fi
+  rm -f "$cfg_tmp"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3i — Meta-Llama-3.1-8B-Instruct (optional)
+# ---------------------------------------------------------------------------
+step_3i() {
+  step_hdr "3i - LLM Model: Meta-Llama-3.1-8B-Instruct"
+  if [[ -z "$HF_TOKEN" ]]; then
+    warn "Skipping 3i: --hf-token not provided"
+    warn "Re-run with: --step 3i --hf-token hf_..."
+    return 0
+  fi
+  set_jfrog_upload_limit_unlimited
+  upload_hf_model "meta-llama/Llama-3.1-8B-Instruct" "Meta-Llama-3.1-8B-Instruct" "$WORKDIR/Llama-3.1-8B-Instruct"
+  success "3i complete"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3j — Meta-Llama-3.2-3B-Instruct (optional)
+# ---------------------------------------------------------------------------
+step_3j() {
+  step_hdr "3j - LLM Model: Meta-Llama-3.2-3B-Instruct"
+  if [[ -z "$HF_TOKEN" ]]; then
+    warn "Skipping 3j: --hf-token not provided"
+    warn "Re-run with: --step 3j --hf-token hf_..."
+    return 0
+  fi
+  set_jfrog_upload_limit_unlimited
+  upload_hf_model "meta-llama/Llama-3.2-3B-Instruct" "Meta-Llama-3.2-3B-Instruct" "$WORKDIR/Llama-3.2-3B-Instruct"
+  success "3j complete"
+}
+
+# ---------------------------------------------------------------------------
 # Step 4 — Set Remote Repos to Offline
 # ---------------------------------------------------------------------------
 step_4() {
@@ -1092,10 +1210,13 @@ step_4() {
     ei-docker-ghcr
     ei-docker-k8s
     ei-docker-quay
+    ei-docker-vault-habana
     ei-pypi-remote
     ei-debian-ubuntu
     ei-helm-ingress-nginx
     ei-helm-langfuse
+    ei-helm-prometheus
+    ei-helm-gaudi
     ei-hf-remote
   )
 
@@ -1122,14 +1243,26 @@ step_4() {
 # ---------------------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "  EI Airgap — JFrog Full Setup"
-echo "  JFrog: $JFROG_URL"
-echo "  Workdir: $WORKDIR"
-echo "  Dry-run: $DRY_RUN"
+echo "  EI Airgap — JFrog Gaudi Setup"
+echo "  JFrog:    $JFROG_URL"
+echo "  Workdir:  $WORKDIR"
+echo "  Dry-run:  $DRY_RUN"
 echo "  Only step: ${ONLY_STEP:-all}"
 echo "  Skip steps: ${SKIP_STEPS[*]:-none}"
+echo "  Gaudi operator: $GAUDI_OPERATOR_VERSION"
+echo "  Habana creds:   ${HABANA_USER:-<not set>}"
 echo "============================================================"
 echo ""
+
+if [[ -z "$HABANA_USER" || -z "$HABANA_PASS" ]]; then
+  warn "Habana credentials not provided — vault.habana.ai artifacts will be skipped."
+  warn "Pass --habana-user and --habana-pass to include:"
+  warn "  - metric-exporter:1.20.1-97 Docker image"
+  warn "  - habana-ai-operator:$GAUDI_OPERATOR_VERSION Helm chart"
+  warn "  - habanalabs-installer.sh binary"
+  warn "  - habana-k8s-device-plugin.yaml manifest"
+  echo ""
+fi
 
 if ! $DRY_RUN; then
   check_prereqs
@@ -1146,10 +1279,11 @@ should_run "3e" && step_3e
 should_run "3f" && step_3f
 should_run "3g" && step_3g
 should_run "3h" && step_3h
+should_run "3k" && step_3k
 should_run "3i" && step_3i
 should_run "3j" && step_3j
 
 should_run "4"  && step_4
 
 echo ""
-success "JFrog setup is complete. Proceed with EI deployment on VM2."
+success "JFrog Gaudi setup complete. Proceed with EI Gaudi deployment on the target node."
