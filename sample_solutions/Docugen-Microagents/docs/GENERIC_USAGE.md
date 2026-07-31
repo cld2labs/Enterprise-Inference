@@ -112,7 +112,7 @@ graph TB
     end
 
     subgraph "External Services"
-        LLM[LLM Provider<br/>Qwen3-4B via GenAI Gateway or Keycloak]
+        LLM[LLM Provider<br/>Qwen3-4B via GenAI Gateway or APISIX]
         GITHUB[GitHub<br/>Public/private repos]
     end
 
@@ -249,22 +249,20 @@ Each micro-agent operates autonomously with access to repository tools:
 
 **LLM API Configuration** (required)
 
-Choose one authentication mode:
+Set your inference endpoint and token. Two gateway patterns are supported:
 
-**Option 1: GenAI Gateway (Recommended)**
+**Option 1: GenAI Gateway**
 ```bash
-AUTH_MODE=genai_gateway
-GENAI_GATEWAY_URL=https://your-gateway-url.com
-GENAI_GATEWAY_API_KEY=your-api-key
+# Endpoint without the model name in the path
+INFERENCE_API_ENDPOINT=https://api.example.com
+INFERENCE_API_TOKEN=your-pre-generated-token-here
 ```
 
-**Option 2: Keycloak (Enterprise)**
+**Option 2: APISIX Gateway**
 ```bash
-AUTH_MODE=keycloak
-BASE_URL=https://your-inference-endpoint.company.com
-KEYCLOAK_REALM=master
-KEYCLOAK_CLIENT_ID=api
-KEYCLOAK_CLIENT_SECRET=your-client-secret
+# Model name is included in the endpoint path
+INFERENCE_API_ENDPOINT=https://api.example.com/Qwen3-4B-Instruct-2507
+INFERENCE_API_TOKEN=your-keycloak-generated-token-here
 ```
 
 **GitHub Personal Access Token** (optional, for private repos and PR creation)
@@ -290,21 +288,17 @@ The target repository must meet these criteria:
 
 **Step 1:** Configure environment
 
-Create `api/.env`:
+Create `.env`:
 ```bash
 # ==========================================
-# Authentication Configuration
+# Inference API Configuration
 # ==========================================
-AUTH_MODE=genai_gateway
-GENAI_GATEWAY_URL=https://your-gateway-url.com
-GENAI_GATEWAY_API_KEY=your-api-key
+INFERENCE_API_ENDPOINT=https://api.example.com
+INFERENCE_API_TOKEN=your-pre-generated-token-here
 
-# OR for enterprise Keycloak authentication:
-# AUTH_MODE=keycloak
-# BASE_URL=https://your-inference-endpoint.company.com
-# KEYCLOAK_REALM=master
-# KEYCLOAK_CLIENT_ID=api
-# KEYCLOAK_CLIENT_SECRET=your-client-secret
+# OR for APISIX Gateway (model name included in the endpoint path):
+# INFERENCE_API_ENDPOINT=https://api.example.com/Qwen3-4B-Instruct-2507
+# INFERENCE_API_TOKEN=your-keycloak-generated-token-here
 
 # ==========================================
 # Micro-Agent Model Configuration
@@ -355,21 +349,21 @@ CORS_ORIGINS=["http://localhost:3000", "http://localhost:3001", "http://localhos
 
 ```bash
 cd Docugen-Microagents
-docker-compose up -d
+docker compose up -d
 ```
 
 **Step 3:** Verify deployment
 
 ```bash
 # Check container status
-docker-compose ps
+docker compose ps
 
 # Expected output:
-# docugen-backend    Up (healthy)
-# docugen-frontend   Up (healthy)
+# Docugen-Microagents-backend    Up (healthy)
+# Docugen-Microagents-frontend   Up (healthy)
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Access application
 # Frontend: http://localhost:3000
@@ -868,7 +862,7 @@ curl -I https://github.com/owner/repo
    - Regenerate token if expired
 3. Restart backend to load new token:
    ```bash
-   docker-compose restart backend
+   docker compose restart backend
    ```
 
 ### Micro-Agent Failures
@@ -878,7 +872,7 @@ curl -I https://github.com/owner/repo
 **Diagnosis:**
 ```bash
 # Check backend logs for agent-specific errors
-docker-compose logs backend | grep -i "agent.*error"
+docker compose logs backend | grep -i "agent.*error"
 
 # Look for:
 # - "Failed to parse JSON from agent output"
@@ -895,7 +889,7 @@ docker-compose logs backend | grep -i "agent.*error"
 
 2. **LLM API errors:**
    - Verify LLM endpoint is accessible
-   - Check API key is valid (GENAI_GATEWAY_API_KEY or KEYCLOAK_CLIENT_SECRET)
+   - Check the token is valid (INFERENCE_API_TOKEN)
    - Verify model names match available models
 
 3. **Timeout errors:**
@@ -911,7 +905,7 @@ docker-compose logs backend | grep -i "agent.*error"
 **View failed agents:**
 ```bash
 # Check state.failed_agents in logs
-docker-compose logs backend | grep "failed_agents"
+docker compose logs backend | grep "failed_agents"
 ```
 
 ### Log Streaming Issues
@@ -945,13 +939,13 @@ PYTHONUNBUFFERED=1 python server.py
 
 Verify Docker CLI installation in backend:
 ```bash
-docker-compose exec backend which docker
+docker compose exec backend which docker
 # Should return: /usr/bin/docker
 ```
 
 If not installed, rebuild backend:
 ```bash
-docker-compose up -d --build backend
+docker compose up -d --build backend
 ```
 
 ### Monorepo Project Detection
@@ -961,7 +955,7 @@ docker-compose up -d --build backend
 **Diagnosis:**
 ```bash
 # Check for package manager files
-docker-compose exec backend ls -la ./tmp/repos/*/
+docker compose exec backend ls -la ./tmp/repos/*/
 
 # Look for:
 # - package.json (Node.js)
@@ -982,7 +976,7 @@ docker-compose exec backend ls -la ./tmp/repos/*/
 **Diagnosis:**
 ```bash
 # Check container resource usage
-docker stats docugen-backend
+docker stats Docugen-Microagents-backend
 ```
 
 **Resolution:**
@@ -1008,7 +1002,7 @@ docker stats docugen-backend
 
 4. Check agent metrics for expensive agents:
    ```bash
-   docker-compose logs backend | grep "agent_metrics"
+   docker compose logs backend | grep "agent_metrics"
    ```
 
 ### Context Window Exceeded
@@ -1018,7 +1012,7 @@ docker stats docugen-backend
 **Diagnosis:**
 ```bash
 # Check blast_radius_report in logs
-docker-compose logs backend | grep "blast_radius"
+docker compose logs backend | grep "blast_radius"
 
 # Look for total_tokens_used exceeding 8000 (Qwen3-4B context window)
 ```
@@ -1049,7 +1043,7 @@ docker-compose logs backend | grep "blast_radius"
 **Diagnosis:**
 ```bash
 # Check QA validation results
-docker-compose logs backend | grep -A 20 "qa_validation_result"
+docker compose logs backend | grep -A 20 "qa_validation_result"
 
 # Review feedback in logs:
 # - Missing sections
@@ -1085,7 +1079,7 @@ docker-compose logs backend | grep -A 20 "qa_validation_result"
 curl http://localhost:5001/health
 
 # Check logs
-docker-compose logs backend
+docker compose logs backend
 ```
 
 **Resolution:**
@@ -1097,12 +1091,12 @@ docker-compose logs backend
 
 2. Check if services are running:
    ```bash
-   docker-compose ps
+   docker compose ps
    ```
 
 3. Restart services:
    ```bash
-   docker-compose restart
+   docker compose restart
    ```
 
 ---
@@ -1117,11 +1111,10 @@ docker-compose logs backend
 cp .env .env.example
 
 # Document each variable with inline comments
-AUTH_MODE=genai_gateway                      # Required: Authentication mode
-GENAI_GATEWAY_URL=https://your-gateway.com   # Required: GenAI Gateway URL
-GENAI_GATEWAY_API_KEY=your-key-here          # Required: GenAI Gateway API key
-DATABASE_URL=postgresql://...                # Required: PostgreSQL connection string
-REDIS_URL=redis://...                        # Optional: Redis for caching
+INFERENCE_API_ENDPOINT=https://api.example.com  # Required: Inference service URL
+INFERENCE_API_TOKEN=your-token-here             # Required: Inference service token
+DATABASE_URL=postgresql://...                   # Required: PostgreSQL connection string
+REDIS_URL=redis://...                           # Optional: Redis for caching
 ```
 
 **Write Clear README Sections**
@@ -1254,13 +1247,12 @@ jobs:
 
       - name: Run DocuGen Micro-Agents
         env:
-          GENAI_GATEWAY_URL: ${{ secrets.GENAI_GATEWAY_URL }}
-          GENAI_GATEWAY_API_KEY: ${{ secrets.GENAI_GATEWAY_API_KEY }}
+          INFERENCE_API_ENDPOINT: ${{ secrets.INFERENCE_API_ENDPOINT }}
+          INFERENCE_API_TOKEN: ${{ secrets.INFERENCE_API_TOKEN }}
         run: |
           docker run -v $(pwd):/repo \
-            -e AUTH_MODE=genai_gateway \
-            -e GENAI_GATEWAY_URL=$GENAI_GATEWAY_URL \
-            -e GENAI_GATEWAY_API_KEY=$GENAI_GATEWAY_API_KEY \
+            -e INFERENCE_API_ENDPOINT=$INFERENCE_API_ENDPOINT \
+            -e INFERENCE_API_TOKEN=$INFERENCE_API_TOKEN \
             Docugen-Microagents:latest \
             /repo
 
@@ -1372,7 +1364,8 @@ See **CUSTOMIZATION.md** for detailed customization guides:
 See **api/.env.example** for complete list with descriptions.
 
 **Key variables:**
-- `AUTH_MODE` - Authentication mode (genai_gateway | keycloak)
+- `INFERENCE_API_ENDPOINT` - Inference service URL (model name in path for APISIX)
+- `INFERENCE_API_TOKEN` - Inference service authentication token
 - `MAX_LINES_PER_FILE` - File sampling budget (default 500)
 - `AGENT_TIMEOUT` - Agent execution timeout in seconds (default 300)
 - `AGENT_TEMPERATURE` - Model temperature 0.0-1.0 (default 0.7)
@@ -1391,7 +1384,7 @@ See **api/.env.example** for complete list with descriptions.
 **Accessing metrics:**
 ```bash
 # View in logs
-docker-compose logs backend | grep "agent_metrics"
+docker compose logs backend | grep "agent_metrics"
 
 # Or via API
 curl http://localhost:5001/api/metrics/{job_id}

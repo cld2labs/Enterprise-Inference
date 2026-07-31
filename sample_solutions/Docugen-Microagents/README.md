@@ -264,7 +264,7 @@ This application supports multiple inference deployment patterns:
   - The API key is the litellm_master_key value from the generated vault.yml file
 
 **APISIX Gateway**: Provide your APISIX Gateway URL and authentication token
-  - URL format: https://api.example.com/Llama-3.1-8B-Instruct
+  - URL format: https://api.example.com/Qwen3-4B-Instruct-2507
   - Note: APISIX requires the model name in the URL path
   - To generate the APISIX authentication token, use the [generate-token.sh](https://github.com/opea-project/Enterprise-Inference/blob/main/core/scripts/generate-token.sh) script
   - The token is generated using Keycloak client credentials
