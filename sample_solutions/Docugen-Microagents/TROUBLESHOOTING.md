@@ -59,19 +59,20 @@ netstat -ano | findstr :3000
 
 ## Configuration Errors
 
-### Missing GenAI Gateway API Key
+### Missing Inference API Token
 
-**Error:** `ValueError: GENAI_GATEWAY_API_KEY not configured`
+**Error:** `ValueError: INFERENCE_API_TOKEN not configured`
 
-**Cause:** API key not set in `.env` file.
+**Cause:** API token not set in `.env` file.
 
 **Solution:**
 ```bash
 # Copy environment template
-cp api/.env.example api/.env
+cp .env.example .env
 
-# Edit api/.env and add your API key
-GENAI_GATEWAY_API_KEY=your_actual_api_key_here
+# Edit .env and set your inference endpoint and token
+INFERENCE_API_ENDPOINT=https://api.example.com/Qwen3-4B-Instruct-2507
+INFERENCE_API_TOKEN=your-pre-generated-token-here
 ```
 
 ### Invalid GitHub Token
@@ -83,26 +84,24 @@ GENAI_GATEWAY_API_KEY=your_actual_api_key_here
 **Solution:**
 1. Generate a new Personal Access Token at https://github.com/settings/tokens
 2. Select `repo` scope (full control of repositories)
-3. Update `GITHUB_TOKEN` in `api/.env`
+3. Update `GITHUB_TOKEN` in `.env`
 4. Token format should be: `ghp_` followed by 36 alphanumeric characters
 
-### Authentication Mode Mismatch
+### Inference Endpoint Misconfigured
 
-**Error:** `KeyError: 'KEYCLOAK_CLIENT_SECRET'` or connection refused
+**Error:** `ConnectionError` or `401 Unauthorized` when calling the inference service
 
-**Cause:** AUTH_MODE set to keycloak but credentials not configured.
+**Cause:** `INFERENCE_API_ENDPOINT` or `INFERENCE_API_TOKEN` incorrect or not configured.
 
 **Solution:**
 ```bash
-# For GenAI Gateway (recommended):
-AUTH_MODE=genai_gateway
-GENAI_GATEWAY_URL=https://your-gateway-url.com
-GENAI_GATEWAY_API_KEY=your_key_here
+# GenAI Gateway (endpoint without model in path):
+INFERENCE_API_ENDPOINT=https://api.example.com
+INFERENCE_API_TOKEN=your-pre-generated-token-here
 
-# For Keycloak:
-AUTH_MODE=keycloak
-BASE_URL=https://your-inference-endpoint.com
-KEYCLOAK_CLIENT_SECRET=your_secret_here
+# APISIX Gateway (model name included in the endpoint path):
+INFERENCE_API_ENDPOINT=https://api.example.com/Qwen3-4B-Instruct-2507
+INFERENCE_API_TOKEN=your-keycloak-generated-token-here
 ```
 
 ---
@@ -256,8 +255,8 @@ AGENT_TIMEOUT=600  # 10 minutes
    - If much higher, repository may have very large files
 
 3. **Network latency to LLM backend**
-   - Ensure low latency network connection to GenAI Gateway
-   - Check GENAI_GATEWAY_URL is accessible
+   - Ensure low latency network connection to the inference service
+   - Check INFERENCE_API_ENDPOINT is accessible
 
 ### High Token Usage
 
@@ -285,13 +284,13 @@ MAX_LINES_PER_FILE=300
 **Solution:**
 ```bash
 # Check backend logs for specific error
-docker-compose logs backend
+docker compose logs backend
 
 # Common causes:
 # 1. Missing .env file - solution above in Configuration Errors
 # 2. Invalid Python dependencies - rebuild:
-docker-compose build --no-cache backend
-docker-compose up -d
+docker compose build --no-cache backend
+docker compose up -d
 
 # 3. Port conflict - solution above in Installation Issues
 ```
@@ -303,8 +302,8 @@ docker-compose up -d
 **Solution:**
 ```bash
 # Rebuild frontend with clean cache
-docker-compose build --no-cache frontend
-docker-compose up -d frontend
+docker compose build --no-cache frontend
+docker compose up -d frontend
 
 # Verify Node.js version in Dockerfile is compatible (16+)
 ```
@@ -332,33 +331,33 @@ MAX_LINES_PER_FILE=300
 **Solution:**
 ```bash
 # Verify both containers are running
-docker-compose ps
+docker compose ps
 
 # Check backend is accessible
-curl http://localhost:5001/api/health
+curl http://localhost:5001/health
 
 # Verify CORS_ORIGINS in api/.env includes frontend URL
 CORS_ORIGINS=["http://localhost:3000"]
 
 # Restart services
-docker-compose restart
+docker compose restart
 ```
 
 ---
 
 ## Network and API Errors
 
-### GenAI Gateway Connection Refused
+### Inference Service Connection Refused
 
 **Error:** `ConnectionRefusedError: [Errno 111] Connection refused`
 
-**Cause:** GenAI Gateway URL incorrect or service unavailable.
+**Cause:** Inference endpoint URL incorrect or service unavailable.
 
 **Solution:**
 ```bash
-# Verify GENAI_GATEWAY_URL is correct in api/.env
+# Verify INFERENCE_API_ENDPOINT is correct in .env
 # Test connectivity:
-curl https://your-gateway-url.com/health
+curl https://api.example.com/health
 
 # Check firewall/proxy settings allow outbound HTTPS
 ```
@@ -418,10 +417,10 @@ To get more detailed logs for debugging:
 LOG_LEVEL=DEBUG
 
 # Restart backend
-docker-compose restart backend
+docker compose restart backend
 
 # View detailed logs
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 ### Check Agent Execution Metrics
@@ -457,7 +456,7 @@ If cloned repositories aren't cleaned up automatically:
 rm -rf api/tmp/repos/*
 
 # Or within Docker:
-docker-compose exec backend rm -rf /app/tmp/repos/*
+docker compose exec backend rm -rf /app/tmp/repos/*
 ```
 
 ### Reset Application State
@@ -466,14 +465,14 @@ To completely reset the application:
 
 ```bash
 # Stop and remove containers
-docker-compose down -v
+docker compose down -v
 
 # Remove temporary files
 rm -rf api/tmp/*
 
 # Rebuild and restart
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ---
@@ -482,9 +481,9 @@ docker-compose up -d
 
 If you continue to experience issues:
 
-1. **Check Logs:** Review backend logs with `docker-compose logs backend -f`
+1. **Check Logs:** Review backend logs with `docker compose logs backend -f`
 2. **Verify Configuration:** Ensure all required environment variables are set in `api/.env`
-3. **Test Connectivity:** Verify network access to GenAI Gateway and GitHub
+3. **Test Connectivity:** Verify network access to the inference service and GitHub
 4. **Metrics Analysis:** Check workflow metrics for anomalies (token usage, duration, failed agents)
 5. **Report Issues:** If the problem persists, collect:
    - Error messages from logs
