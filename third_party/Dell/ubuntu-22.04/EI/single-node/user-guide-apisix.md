@@ -108,7 +108,6 @@ SSH keys are required to allow **Ansible** or automation scripts to connect secu
 
     If your domain is not registered in DNS, you can map it manually by editing your /etc/hosts file
     ```bash
-    hostname -I   # Get your machine's private IP
     sudo nano /etc/hosts
     ```
  

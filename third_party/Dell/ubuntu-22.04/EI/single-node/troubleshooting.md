@@ -126,8 +126,15 @@ Device plugin unable to detect Gaudi3 PCIe cards.
 **Fix:**
 Update your Habana device plugin version. Version 1.22.1-6 is recommended.
 
-kubectl set image pod/habana-ai-device-plugin-ds-tjbch \
+Find the device plugin pod name:
+```bash
+kubectl get pods -n habana-ai-operator | grep habana-ai-device-plugin-ds
+```
+
+```bash
+kubectl set image pod/<habana-ai-device-plugin-ds-pod-name> \
   habana-ai-device-plugin=vault.habana.ai/docker-k8s-device-plugin/docker-k8s-device-plugin:1.22.1-6
+```
 
 **Verification:**
 
