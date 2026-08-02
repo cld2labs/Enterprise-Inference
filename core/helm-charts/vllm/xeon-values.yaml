@@ -31,8 +31,8 @@ max_model_len: 8192
 
 # vLLM CPU image configuration
 image:
-  repository: public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo
-  tag: "v0.10.2"
+  repository: vllm/vllm-openai-cpu
+  tag: "v0.24.0"
   pullPolicy: IfNotPresent
 
 # Node affinity for Xeon inference nodes
@@ -63,6 +63,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       HF_HUB_DISABLE_XET: "1"
       VLLM_CPU_SGL_KERNEL: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -79,7 +81,6 @@ modelConfigs:
         "2048",
         "--max-num-seqs",
         "256",
-        "--disable-log-requests",
         "--enable-auto-tool-choice",
         "--tool-call-parser", "llama3_json",
       ]
@@ -95,6 +96,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -126,6 +129,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -142,7 +147,6 @@ modelConfigs:
         "2048",
         "--max-num-seqs",
         "256",
-        "--disable-log-requests",        
       ]
     tensor_parallel_size: "{{ .Values.tensor_parallel_size }}"
     pipeline_parallel_size: "{{ .Values.pipeline_parallel_size }}"
@@ -156,6 +160,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -172,7 +178,6 @@ modelConfigs:
         "2048",
         "--max-num-seqs",
         "256",
-        "--disable-log-requests",       
       ]
     tensor_parallel_size: "{{ .Values.tensor_parallel_size }}"
     pipeline_parallel_size: "{{ .Values.pipeline_parallel_size }}"
@@ -186,6 +191,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -217,6 +224,8 @@ modelConfigs:
       VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -250,6 +259,8 @@ modelConfigs:
       VLLM_CPU_SGL_KERNEL: "1"
       HF_HUB_DISABLE_XET: "1"
       LOGNAME: "vllm"
+      USER: "vllm"
+      TRITON_CACHE_DIR: "/tmp/.triton"
     extraCmdArgs:
       [
         "--block-size",
@@ -279,8 +290,9 @@ defaultModelConfigs:
     VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
     VLLM_ENGINE_ITERATION_TIMEOUT_S: "120"
     VLLM_CPU_NUM_OF_RESERVED_CPU: "0"
-    VLLM_CPU_SGL_KERNEL: "1"
     HF_HUB_DISABLE_XET: "1"
+    USER: "vllm"
+    TRITON_CACHE_DIR: "/tmp/.triton"
   extraCmdArgs:
     [
       "--block-size",
