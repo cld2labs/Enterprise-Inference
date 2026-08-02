@@ -30,6 +30,8 @@ Mounts the **RHEL 9.6 ISO** via the **iDRAC Redfish Virtual Media API**. Idempot
 > wget https://raw.githubusercontent.com/opea-project/Enterprise-Inference/main/third_party/Dell/ubuntu-22.04/iac/variables.tf
 > wget https://raw.githubusercontent.com/opea-project/Enterprise-Inference/main/third_party/Dell/ubuntu-22.04/iac/terraform.tfvars
 > ```
+>
+> **Note:** These `wget` URLs point to `main` because the `third_party/Dell` folder is not yet available on the `release-1.4.0` branch. This deployment is tested against the **`release-1.4.0`** Enterprise Inference scripts — the `deploy-enterprise-inference.sh` script below clones that branch by default (see `-b, --branch`).
 
 ### Required Environment Variables
 ```bash

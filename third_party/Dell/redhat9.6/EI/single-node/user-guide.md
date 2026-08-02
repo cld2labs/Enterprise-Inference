@@ -390,7 +390,7 @@ export BASE_URL=https://api.example.com    # Replace with your FQDN
 
 **Run a test query for Gaudi:**
 ```bash
-curl -k https://${BASE_URL}/v1/completions \
+curl -k ${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <litellm_master_key>" \
@@ -404,7 +404,7 @@ curl -k https://${BASE_URL}/v1/completions \
 
 **Run a test query for CPU:**
 ```bash
-curl -k https://${BASE_URL}/v1/completions \
+curl -k ${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <litellm_master_key>" \
