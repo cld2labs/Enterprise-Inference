@@ -64,8 +64,10 @@ tinyllama-1-1b-cpu-vllm-apisixroute     api.example.com
 
 ## Step 4: Test the Deployed Model
 
+> **Note:** Route paths are case-sensitive and must match the `LLM_MODEL_ID` Hugging Face name from Step 2 exactly.
+
 ```bash
-curl -k https://${BASE_URL}/tinyLlama-1.1B-Chat-v1.0-vllmcpu/v1/completions \
+curl -k https://${BASE_URL}/TinyLlama-1.1B-Chat-v1.0-vllmcpu/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \

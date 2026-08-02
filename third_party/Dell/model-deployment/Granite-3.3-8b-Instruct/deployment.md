@@ -64,6 +64,8 @@ vllm-granite-3-3-instruct-cpu-apisixroute    api.example.com
 
 ## Step 4: Test the Deployed Model
 
+> **Note:** Route paths are case-sensitive and must match the `LLM_MODEL_ID` Hugging Face name from Step 2 exactly.
+
 ```bash
 curl -k https://${BASE_URL}/granite-3.3-8b-instruct-vllmcpu/v1/completions \
   -X POST \

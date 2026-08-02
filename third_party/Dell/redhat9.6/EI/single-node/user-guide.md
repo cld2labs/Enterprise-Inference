@@ -133,7 +133,6 @@ SSH keys are required to allow **Ansible** or automation scripts to connect secu
 
     If your domain is not registered in DNS, map it manually via `/etc/hosts`:
     ```bash
-    hostname -I   # Retrieve the machine's IP address
     sudo nano /etc/hosts
     ```
 
@@ -361,7 +360,7 @@ A valid token is a long JWT string. If empty, re-check your Keycloak configurati
 
 For Gaudi:
 ```bash
-curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
+curl -k ${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -370,7 +369,7 @@ curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
 
 For CPU:
 ```bash
-curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
+curl -k ${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \

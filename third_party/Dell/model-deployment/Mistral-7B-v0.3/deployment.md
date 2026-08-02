@@ -64,6 +64,8 @@ mistral-7b-v3-apisixroute     api.example.com
 
 ## Step 4: Test the Deployed Model
 
+> **Note:** Route paths are case-sensitive and must match the `LLM_MODEL_ID` Hugging Face name from Step 2 exactly.
+
 ```bash
 curl -k https://${BASE_URL}/Mistral-7B-v0.3-vllmcpu/v1/completions \
   -X POST \
