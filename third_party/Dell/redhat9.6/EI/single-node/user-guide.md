@@ -382,14 +382,14 @@ curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
 
 Set the base URL and retrieve the master key from the vault file:
 ```bash
-export BASE_URL=https://api.example.com    # Replace with your FQDN
+export BASE_URL=api.example.com    # Replace with your FQDN
 ```
 
 > **Note:** The `litellm_master_key` is located in `core/inventory/metadata/vault.yml`.
 
 **Run a test query for Gaudi:**
 ```bash
-curl -k ${BASE_URL}/v1/completions \
+curl -k https://${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <litellm_master_key>" \
@@ -403,7 +403,7 @@ curl -k ${BASE_URL}/v1/completions \
 
 **Run a test query for CPU:**
 ```bash
-curl -k ${BASE_URL}/v1/completions \
+curl -k https://${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <litellm_master_key>" \

@@ -219,14 +219,14 @@ Expected States:
 
 Set the DNS used to deploy Enterprise Inference:
 ```bash
-export BASE_URL=https://api.example.com
+export BASE_URL=api.example.com
 ```
 
 Reference the litellm_master_key file under core/inventory/metadata/vault.yml for master-key. Change the model as needed. Run **ONE** of the following commands depending on the hardware platform Enterprise Inference is deployed on.
 
 **Run a test query for Gaudi:**
 ```bash
-curl -k ${BASE_URL}/v1/completions \
+curl -k https://${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <<master-key>>" \
@@ -240,7 +240,7 @@ curl -k ${BASE_URL}/v1/completions \
 
 **Run a test query for CPU:**
 ```bash
-curl -k ${BASE_URL}/v1/completions \
+curl -k https://${BASE_URL}/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <<master-key>>" \
