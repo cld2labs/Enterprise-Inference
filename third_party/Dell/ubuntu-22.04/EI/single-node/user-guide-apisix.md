@@ -242,7 +242,7 @@ kubectl get apisixroutes
 
 **Obtain Access Token**
 
-Before generating the access token, ensure all Keycloak-related values are correctly set in the `Enterprise-Inference/core/scripts/generate-token.sh` and these values must match with keycloak values in `Enterprise-Inference/core/inventory/inference-config.cfg` .
+Before generating the access token, ensure all Keycloak-related values are correctly set in the `Enterprise-Inference/core/scripts/generate-token.sh` and these values must match with keycloak values in `Enterprise-Inference/core/inventory/inference-config.cfg`.
 
 ```bash
 cd Enterprise-Inference/core/scripts
@@ -252,25 +252,21 @@ chmod +x generate-token.sh
 
 **Verify the Token**
 
-After the script completes successfully, confirm that the token is available in your shell:
+After the script completes successfully, confirm that the token and base_url available in your shell:
 
 ```bash
+echo $BASE_URL
 echo $TOKEN
 ```
 
 If a valid token is returned (long JWT string), the environment is ready for inference testing.
-
-Set the DNS used to deploy Enterprise Inference:
-```bash
-export BASE_URL=https://api.example.com
-```
 
  Change the model as needed. Note that with Keycloak/APISIX, the model name is included in the URL path. This must match one of the routes from the command `kubectl get apisixroutes`. Run **ONE** of the following commands depending on the hardware platform Enterprise Inference is deployed on.
 
 **Run a test query for Gaudi:**
 
 ```bash
-curl -k ${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
+curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
 -X POST \
 -d '{"model": "meta-llama/Llama-3.1-8B-Instruct", "prompt": "What is Deep Learning?", "max_tokens": 25, "temperature": 0}' \
 -H 'Content-Type: application/json' \
@@ -279,7 +275,7 @@ curl -k ${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
 
 **Run a test query for CPU:**
 ```bash
-curl -k ${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
+curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
 -X POST \
 -d '{"model": "meta-llama/Llama-3.1-8B-Instruct", "prompt": "What is Deep Learning?", "max_tokens": 25, "temperature": 0}' \
 -H 'Content-Type: application/json' \

@@ -360,7 +360,7 @@ A valid token is a long JWT string. If empty, re-check your Keycloak configurati
 
 For Gaudi:
 ```bash
-curl -k ${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
+curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -369,7 +369,7 @@ curl -k ${BASE_URL}/Llama-3.1-8B-Instruct/v1/completions \
 
 For CPU:
 ```bash
-curl -k ${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
+curl -k https://${BASE_URL}/Llama-3.1-8B-Instruct-vllmcpu/v1/completions \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
