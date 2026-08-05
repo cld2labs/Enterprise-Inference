@@ -14,10 +14,10 @@ parse_arguments() {
             --models) models="$2"; shift ;;
             --cpu-or-gpu)
                 case "$2" in
-                    c|C)
+                    c|C|cpu|CPU)
                         cpu_or_gpu="c"
                         ;;
-                    g|G)
+                    g|G|gpu|GPU)
                         cpu_or_gpu="g"
                         ;;
                     nv-gpu|NV-GPU|nvidia|NVIDIA)
@@ -172,15 +172,15 @@ prompt_for_input() {
     if [[ -z "$cpu_or_gpu" ]]; then
         read -p "Do you want to run on CPU or GPU? (c/g/nv-gpu): " cpu_or_gpu
         case "$cpu_or_gpu" in
-            c|C)
+            c|C|cpu|CPU)
                 cpu_or_gpu="c"
                 echo "Running on CPU"
                 ;;
-            g|G)
+            g|G|gpu|GPU)
                 cpu_or_gpu="g"
                 echo "Running on GPU"
                 ;;
-            nv-gpu|NV-GPU)
+            nv-gpu|NV-GPU|nvidia|NVIDIA)
                 cpu_or_gpu="g"
                 gpu_vendor="nvidia"
                 echo "Running on NVIDIA GPU"
